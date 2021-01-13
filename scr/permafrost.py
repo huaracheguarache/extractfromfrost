@@ -9,6 +9,8 @@ import pandas as pd
 from io import StringIO
 import xarray as xr
 import matplotlib.pyplot as plt
+import datetime as dt
+from dateutil import tz
 import yaml
 
 def parse_arguments():
@@ -63,6 +65,7 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
     myprofiles = list()
     mydepths = []
     for i in df.loc[:,'referenceTime']:
+        #print(type(i))
         mytimes.append(i)
         mydata = {
                 'depth':df.filter(like='depth_below_surface',axis='columns').iloc[ntime].values,
@@ -73,13 +76,12 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
         mydepths = mytmpdata.depth
         ntime += 1
 
-    print(type(mytimes[0]))
-    #print(myprofiles)
-    #print(mydepths)
+    mytimes = (pd.to_datetime(mytimes,
+        utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
     da_profile = xr.DataArray(myprofiles, 
             dims=['time','depth'],
             coords={
-                'time':pd.to_datetime(mytimes),
+                'time':mytimes,
                 'depth':mydepths})
     da_profile.name = 'soil_temperature'
     da_profile.attrs['name'] = 'temperature'
@@ -91,6 +93,7 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
     da_profile.depth.attrs['units'] = 'centimeter'
     da_profile.depth.attrs['positive'] = 'down'
     da_profile.time.attrs['standard_name'] = 'time'
+    da_profile.time.attrs['units'] = 'seconds since 1970-01-01 00:00:00+0'
 
     # Need to convert from dataarray to dataset in order to add global
     # attributes
@@ -105,7 +108,8 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
 
     # Dump to Netcdf
     print(ds_profile)
-    ds_profile.to_netcdf('mytestfile.nc')
+    ds_profile.to_netcdf('mytestfile.nc',
+           encoding={'time': {'dtype': 'int32'}})
     return
 
 if __name__ == '__main__':
