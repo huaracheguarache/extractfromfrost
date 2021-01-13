@@ -73,12 +73,13 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
         mydepths = mytmpdata.depth
         ntime += 1
 
-    print(myprofiles)
-    print(mydepths)
+    print(type(mytimes[0]))
+    #print(myprofiles)
+    #print(mydepths)
     da_profile = xr.DataArray(myprofiles, 
             dims=['time','depth'],
             coords={
-                'time':mytimes,
+                'time':pd.to_datetime(mytimes),
                 'depth':mydepths})
     da_profile.name = 'soil_temperature'
     da_profile.attrs['name'] = 'temperature'
@@ -90,13 +91,11 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
     da_profile.depth.attrs['units'] = 'centimeter'
     da_profile.depth.attrs['positive'] = 'down'
     da_profile.time.attrs['standard_name'] = 'time'
-    #print(da_profile)
 
     # Need to convert from dataarray to dataset in order to add global
     # attributes
     ds_profile = da_profile.to_dataset()
     ds_profile.attrs['abstract'] = "Some text describing the content"
-    #print(ds_profile)
 
     # Plotting  works best on DataArray, not sure how to do on DataSet, i.e.
     # extract DataArray from Dataset first
@@ -108,18 +107,6 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
     print(ds_profile)
     ds_profile.to_netcdf('mytestfile.nc')
     return
-
-    #print(mytimes)
-    #print(profiles)
-    #sys.exit()
-    print(df.loc[0,'referenceTime'])
-    print(df.iloc[0,:].filter(like='depth_below_surface',axis='columns'))
-    #print(df.iloc[0,df.columns.str.contains'depth_below_surface'])
-    temperature = [i for i in df.columns if 'soil_temperature' in i]
-    depth = [i for i in df.columns if 'depth_below_surface' in i]
-
-    myxr = df.to_xarray()
-    myxr.to_netcdf('mytestfile.nc')
 
 if __name__ == '__main__':
     
