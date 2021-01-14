@@ -9,8 +9,6 @@ import pandas as pd
 from io import StringIO
 import xarray as xr
 import matplotlib.pyplot as plt
-import datetime as dt
-from dateutil import tz
 import yaml
 
 def parse_arguments():
@@ -107,9 +105,12 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
     #plt.show()
 
     # Dump to Netcdf
-    print(ds_profile)
-    ds_profile.to_netcdf('mytestfile.nc',
-           encoding={'time': {'dtype': 'int32'}})
+    #print(ds_profile)
+    ds_profile.to_netcdf(dumplocation,
+            encoding={'depth': {'dtype':'int32'},
+                'time': {'dtype': 'int32'},
+                'soil_temperature': {'dtype': 'float32'}
+                })
     return
 
 if __name__ == '__main__':
@@ -125,10 +126,10 @@ if __name__ == '__main__':
 
     # Loop through stations
     for station,content in cfgstr['stations'].items():
-        if station not in ['SN97710']:
+        if station in ['SN99380','SN99927','SN99879']:
             continue
         print('Requesting data for', station)
-        outputfile = cfgstr['output']['destdir']+'/'+content['filename']
+        outputfile = cfgstr['output']['destdir']+'/'+content['filename']+'.nc'
         print(outputfile)
 #sources="+mystations[0]+"&elements=soil_temperature&fields=referenceTime,elementId,SourceId,value,level&referencetime=2020-01-01/2020-12-31"
 
@@ -140,4 +141,3 @@ if __name__ == '__main__':
         extractdata(cfgstr['frostcfg']['client_id'],
                 cfgstr['frostcfg']['endpoint'],
                 myrequest, station, outputfile)
-        sys.exit()
