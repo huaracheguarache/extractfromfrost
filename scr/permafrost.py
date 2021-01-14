@@ -9,6 +9,8 @@ import pandas as pd
 from io import StringIO
 import xarray as xr
 import matplotlib.pyplot as plt
+#import datetime as dt
+import json
 import yaml
 
 def parse_arguments():
@@ -40,12 +42,32 @@ def parse_cfg(cfgfile):
 
     return cfgstr
 
-def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
+def extractdata(frostcfg,station,stmd,dumplocation,abstract):
 
-    # Connect and read
-    r = requests.get(myendpoint,
+    # Create request for observations
+    myrequest = 'ids='+station
+    # Connect and read metadata
+    r = requests.get(frostcfg['endpointmeta'],
             myrequest,
-            auth=(clientID,""))
+            auth=(frostcfg['client_id'],""))
+    # Check if the request worked, print out any errors
+    if r.status_code != 200:
+        print('Error! Returned status code %s' % r.status_code)
+        print(r.text)
+        sys.exit()
+
+    print(r.text)
+    metadata = json.loads(r.text)
+
+    # Create request for observations
+    myrequest = ('sources='+station+'&elements='
+        +'.'.join(frostcfg['elements'])
+        +'&fields='+','.join(frostcfg['fields'])
+        +'&referencetime='+'/'.join([args.startday,args.endday]))
+    # Connect and read observations
+    r = requests.get(frostcfg['endpointobs'],
+            myrequest,
+            auth=(frostcfg['client_id'],""))
     # Check if the request worked, print out any errors
     if r.status_code != 200:
         print('Error! Returned status code %s' % r.status_code)
@@ -74,6 +96,8 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
         mydepths = mytmpdata.depth
         ntime += 1
 
+    datasetstart = min(mytimes).strftime('%Y-%m-%dT%H:%M:%SZ')
+    datasetend = max(mytimes).strftime('%Y-%m-%dT%H:%M:%SZ')
     mytimes = (pd.to_datetime(mytimes,
         utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
     da_profile = xr.DataArray(myprofiles, 
@@ -96,7 +120,31 @@ def extractdata(clientID,myendpoint,myrequest,station,dumplocation):
     # Need to convert from dataarray to dataset in order to add global
     # attributes
     ds_profile = da_profile.to_dataset()
-    ds_profile.attrs['abstract'] = "Some text describing the content"
+    ds_profile.attrs['title'] = 'Permafrost borehole measurements at '+stmd['name']
+    ds_profile.attrs['summary'] = abstract
+    ds_profile.attrs['license'] = metadata['license']
+    ds_profile.attrs['time_coverage_start'] = datasetstart
+    ds_profile.attrs['time_coverage_end'] = datasetend
+    ds_profile.attrs['geospatial_lat_min'] = metadata['data'][0]['geometry']['coordinates'][1]
+    ds_profile.attrs['geospatial_lat_max'] = metadata['data'][0]['geometry']['coordinates'][1]
+    ds_profile.attrs['geospatial_lon_min'] = metadata['data'][0]['geometry']['coordinates'][0]
+    ds_profile.attrs['geospatial_lon_max'] = metadata['data'][0]['geometry']['coordinates'][0]
+    ds_profile.attrs['creator_name'] = stmd['PrincipalInvestigator'] 
+    ds_profile.attrs['creator_email'] = stmd['PrincipalInvestigatorEmail']
+    ds_profile.attrs['creator_url'] = stmd['PrincipalInvestigatorOrganisationURL']
+    ds_profile.attrs['creator_institution'] = stmd['PrincipalInvestigatorOrganisation']
+    ds_profile.attrs['keywords'] = 'Earth Science > Cryosphere > Frozen Ground > Permafrost > Permafrost Temperature'
+    ds_profile.attrs['keywords_vocabulary'] = 'GCMD'
+    ds_profile.attrs['publisher_name'] = ''
+    ds_profile.attrs['publisher_email'] = 'adc@met.no'
+    ds_profile.attrs['publisher_url'] = 'https://adc.met.no/'
+    ds_profile.attrs['publisher_institution'] = 'Norwegian Meteorlogical Institute'
+    ds_profile.attrs['Conventions'] = 'ACDD, CF-1.8'
+    ds_profile.attrs['date_created'] = metadata['createdAt']
+    ds_profile.attrs['history'] = metadata['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
+    ds_profile.attrs['source'] = 'Soil temperature from permafrost boreholes'
+    ds_profile.attrs['wigosId'] = metadata['data'][0]['wigosId']
+    ds_profile.attrs['project'] = stmd['Project']
 
     # Plotting  works best on DataArray, not sure how to do on DataSet, i.e.
     # extract DataArray from Dataset first
@@ -131,13 +179,6 @@ if __name__ == '__main__':
         print('Requesting data for', station)
         outputfile = cfgstr['output']['destdir']+'/'+content['filename']+'.nc'
         print(outputfile)
-#sources="+mystations[0]+"&elements=soil_temperature&fields=referenceTime,elementId,SourceId,value,level&referencetime=2020-01-01/2020-12-31"
-
-        myrequest = ('sources='+station+'&elements='
-            +'.'.join(cfgstr['frostcfg']['elements'])
-            +'&fields='+','.join(cfgstr['frostcfg']['fields'])
-            +'&referencetime='+'/'.join([args.startday,args.endday]))
-        print(myrequest)
-        extractdata(cfgstr['frostcfg']['client_id'],
-                cfgstr['frostcfg']['endpoint'],
-                myrequest, station, outputfile)
+        extractdata(cfgstr['frostcfg'], station, content,
+                outputfile,cfgstr['output']['abstract'])
+        sys.exit()
