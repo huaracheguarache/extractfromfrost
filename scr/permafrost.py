@@ -42,8 +42,10 @@ def parse_cfg(cfgfile):
 
     return cfgstr
 
-def extractdata(frostcfg,station,stmd,dumplocation,abstract):
+def extractdata(frostcfg,station,stmd,output):
 
+    print(stmd['boreholes'][0])
+    sys.exit()
     # Create request for observations
     myrequest = 'ids='+station
     # Connect and read metadata
@@ -64,6 +66,7 @@ def extractdata(frostcfg,station,stmd,dumplocation,abstract):
         +'.'.join(frostcfg['elements'])
         +'&fields='+','.join(frostcfg['fields'])
         +'&referencetime='+'/'.join([args.startday,args.endday]))
+    print(myrequest)
     # Connect and read observations
     r = requests.get(frostcfg['endpointobs'],
             myrequest,
@@ -98,6 +101,8 @@ def extractdata(frostcfg,station,stmd,dumplocation,abstract):
 
     datasetstart = min(mytimes).strftime('%Y-%m-%dT%H:%M:%SZ')
     datasetend = max(mytimes).strftime('%Y-%m-%dT%H:%M:%SZ')
+    datasetstart4filename = min(mytimes).strftime('%Y%m%d')
+    datasetend4filename = max(mytimes).strftime('%Y%m%d')
     mytimes = (pd.to_datetime(mytimes,
         utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
     da_profile = xr.DataArray(myprofiles, 
@@ -120,8 +125,9 @@ def extractdata(frostcfg,station,stmd,dumplocation,abstract):
     # Need to convert from dataarray to dataset in order to add global
     # attributes
     ds_profile = da_profile.to_dataset()
+    ds_profile.attrs['featureType'] = 'timeSeriesProfile'
     ds_profile.attrs['title'] = 'Permafrost borehole measurements at '+stmd['name']
-    ds_profile.attrs['summary'] = abstract
+    ds_profile.attrs['summary'] = output['abstract']
     ds_profile.attrs['license'] = metadata['license']
     ds_profile.attrs['time_coverage_start'] = datasetstart
     ds_profile.attrs['time_coverage_end'] = datasetend
@@ -144,6 +150,7 @@ def extractdata(frostcfg,station,stmd,dumplocation,abstract):
     ds_profile.attrs['history'] = metadata['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
     ds_profile.attrs['source'] = 'Soil temperature from permafrost boreholes'
     ds_profile.attrs['wigosId'] = metadata['data'][0]['wigosId']
+    ds_profile.attrs['METNOId'] =  station
     ds_profile.attrs['project'] = stmd['Project']
 
     # Plotting  works best on DataArray, not sure how to do on DataSet, i.e.
@@ -154,7 +161,8 @@ def extractdata(frostcfg,station,stmd,dumplocation,abstract):
 
     # Dump to Netcdf
     #print(ds_profile)
-    ds_profile.to_netcdf(dumplocation,
+    outputfile = output['destdir']+'/'+stmd['filename']+'_'+datasetstart4filename+'-'+datasetend4filename+'.nc'
+    ds_profile.to_netcdf(outputfile,
             encoding={'depth': {'dtype':'int32'},
                 'time': {'dtype': 'int32'},
                 'soil_temperature': {'dtype': 'float32'}
@@ -177,8 +185,6 @@ if __name__ == '__main__':
         if station in ['SN99380','SN99927','SN99879']:
             continue
         print('Requesting data for', station)
-        outputfile = cfgstr['output']['destdir']+'/'+content['filename']+'.nc'
-        print(outputfile)
-        extractdata(cfgstr['frostcfg'], station, content,
-                outputfile,cfgstr['output']['abstract'])
+        #outputfile = cfgstr['output']['destdir']+'/'+content['filename']+'.nc'
+        extractdata(cfgstr['frostcfg'], station, content, cfgstr['output'])
         sys.exit()
