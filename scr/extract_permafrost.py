@@ -44,8 +44,7 @@ def parse_cfg(cfgfile):
 
 def extractdata(frostcfg,station,stmd,output):
 
-    print(stmd['boreholes'][0])
-    sys.exit()
+    #print(stmd['boreholes'][0])
     # Create request for observations
     myrequest = 'ids='+station
     # Connect and read metadata
@@ -66,7 +65,7 @@ def extractdata(frostcfg,station,stmd,output):
         +'.'.join(frostcfg['elements'])
         +'&fields='+','.join(frostcfg['fields'])
         +'&referencetime='+'/'.join([args.startday,args.endday]))
-    print(myrequest)
+    #print(myrequest)
     # Connect and read observations
     r = requests.get(frostcfg['endpointobs'],
             myrequest,
@@ -139,7 +138,7 @@ def extractdata(frostcfg,station,stmd,output):
     ds_profile.attrs['creator_email'] = stmd['PrincipalInvestigatorEmail']
     ds_profile.attrs['creator_url'] = stmd['PrincipalInvestigatorOrganisationURL']
     ds_profile.attrs['creator_institution'] = stmd['PrincipalInvestigatorOrganisation']
-    ds_profile.attrs['keywords'] = 'Earth Science > Cryosphere > Frozen Ground > Permafrost > Permafrost Temperature'
+    ds_profile.attrs['keywords'] = 'Earth Science > Cryosphere > Frozen Ground > Permafrost > Permafrost Temperature,Earth Science > Land Surface > Soils > Soil temperature'
     ds_profile.attrs['keywords_vocabulary'] = 'GCMD'
     ds_profile.attrs['publisher_name'] = ''
     ds_profile.attrs['publisher_email'] = 'adc@met.no'
@@ -182,9 +181,8 @@ if __name__ == '__main__':
 
     # Loop through stations
     for station,content in cfgstr['stations'].items():
-        if station in ['SN99380','SN99927','SN99879']:
+        if station in ['SN99927']:
             continue
         print('Requesting data for', station)
         #outputfile = cfgstr['output']['destdir']+'/'+content['filename']+'.nc'
         extractdata(cfgstr['frostcfg'], station, content, cfgstr['output'])
-        sys.exit()
