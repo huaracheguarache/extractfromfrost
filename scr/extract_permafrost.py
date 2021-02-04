@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 #import datetime as dt
 import json
 import yaml
+import logging
+from logging.handlers import TimedRotatingFileHandler
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -41,6 +43,36 @@ def parse_cfg(cfgfile):
         cfgstr = yaml.full_load(ymlfile)
 
     return cfgstr
+
+def initialise_logger(outputfile = './log'):
+    # Check that logfile exists
+    logdir = os.path.dirname(outputfile)
+    if not os.path.exists(logdir):
+        try:
+            os.makedirs(logdir)
+        except:
+            raise IOError
+    # Set up logging
+    mylog = logging.getLogger()
+    mylog.setLevel(logging.INFO)
+    #logging.basicConfig(level=logging.INFO, 
+    #        format='%(asctime)s - %(levelname)s - %(message)s')
+    myformat = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(myformat)
+    mylog.addHandler(console_handler)
+    file_handler = logging.handlers.TimedRotatingFileHandler(
+            outputfile,
+            when='w0',
+            interval=1,
+            backupCount=7)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(myformat)
+    mylog.addHandler(file_handler)
+
+    return(mylog)
+
 
 def extractdata(frostcfg,station,stmd,output):
 
@@ -172,12 +204,13 @@ if __name__ == '__main__':
     
     # Parse command line arguments
     args = parse_arguments()
-    print(args.cfgfile)
 
     # Parse configuration file
     cfgstr = parse_cfg(args.cfgfile)
-    #print(cfgstr)
-    #print(cfgstr['frostcfg']['client_id'])
+
+    # Initialise logging
+    mylog = initialise_logger(cfgstr['output']['logfile'])
+    mylog.info('Configuration finished')
 
     # Loop through stations
     for station,content in cfgstr['stations'].items():
