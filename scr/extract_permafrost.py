@@ -125,9 +125,11 @@ def extractdata(frostcfg,station,stmd,output):
         mylog.error('Something went wrong extracting data.')
         raise
     # Check if the request worked, print out any errors
-    if not r.ok:
-        mylog.error('Returned status code was %s', r.status_code)
-        print(r.text)
+    if r.status_code == 412:
+        mylog.error('Information returned indicates that no data is available for this time period for station %s', station)
+        return
+    if not r.status_code == 200:
+        mylog.error('Returned status code was %s\nmessage:\n%s', r.status_code, r.text)
         raise
     # Read into  Pandas DataFrame
     df = pd.read_csv(StringIO(r.text),header=0,
