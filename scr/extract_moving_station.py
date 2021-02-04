@@ -242,7 +242,10 @@ if __name__ == '__main__':
     # Loop through stations
     mylog.info('Process stations requested in configuration file.')
     for station,content in cfgstr['stations'].items():
+        if station in ['SN99927']:
+            continue
         mylog.info('Requesting data for: %s', station)
+        #outputfile = cfgstr['output']['destdir']+'/'+content['filename']+'.nc'
         try:
             extractdata(cfgstr['frostcfg'], station, content, cfgstr['output'])
         except:
