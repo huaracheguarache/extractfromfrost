@@ -14,6 +14,7 @@ import json
 import yaml
 import logging
 from logging.handlers import TimedRotatingFileHandler
+from datetime import datetime
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -25,10 +26,15 @@ def parse_arguments():
     parser.add_argument("-e","--endday",dest="endday",
             help="End day in the form YYYY-MM-DD", required=True)
     args = parser.parse_args()
-    print(args)
-    print(args.cfgfile)
-    print(args.startday)
-    print(args.endday)
+
+    try:
+        datetime.strptime(args.startday,'%Y-%m-%d')
+    except ValueError:
+        raise ValueError
+    try:
+        datetime.strptime(args.endday,'%Y-%m-%d')
+    except ValueError:
+        raise ValueError
 
     if args.cfgfile is None:
         parser.print_help()
@@ -73,40 +79,56 @@ def initialise_logger(outputfile = './log'):
 
     return(mylog)
 
-
 def extractdata(frostcfg,station,stmd,output):
 
     #print(stmd['boreholes'][0])
     # Create request for observations
+    mylog.info('Retrieving metadata for station: %s', station)
     myrequest = 'ids='+station
+
     # Connect and read metadata
-    r = requests.get(frostcfg['endpointmeta'],
-            myrequest,
-            auth=(frostcfg['client_id'],""))
+    try:
+        r = requests.get(frostcfg['endpointmeta'],
+                myrequest,
+                auth=(frostcfg['client_id'],""))
+    except:
+        mylog.error('Something went wrong extracting metadata.')
+        raise
     # Check if the request worked, print out any errors
-    if r.status_code != 200:
-        print('Error! Returned status code %s' % r.status_code)
+    if not r.ok:
+        mylog.error('Returned status code was %s', r.status_code)
         print(r.text)
-        sys.exit()
-
-    print(r.text)
+        raise
     metadata = json.loads(r.text)
-
+    # Check that the station has data in the period requested.
+    # Sometimes this will fail anyway since there is no data due to technical issues and the station is still considered active.
+    if 'validTo' in metadata['data'][0].keys():
+        if datetime.strptime(args.startday,'%Y-%m-%d') > datetime.strptime(metadata['data'][0]['validTo'],'%Y-%m-%dT%H:%M:%S.%fZ'): 
+            mylog.warn('Station %s doesn\'t contain data as late as this.', station)
+            return
+    if 'validFrom' in metadata['data'][0].keys():
+        if datetime.strptime(args.endday,'%Y-%m-%d') < datetime.strptime(metadata['data'][0]['validFrom'],'%Y-%m-%dT%H:%M:%S.%fZ'):
+            mylog.warn('Station %s doesn\'t contain data as early as this.', station)
+            return
     # Create request for observations
+    mylog.info('Retrieving data for station: %s', station)
     myrequest = ('sources='+station+'&elements='
         +'.'.join(frostcfg['elements'])
         +'&fields='+','.join(frostcfg['fields'])
         +'&referencetime='+'/'.join([args.startday,args.endday]))
-    #print(myrequest)
     # Connect and read observations
-    r = requests.get(frostcfg['endpointobs'],
-            myrequest,
-            auth=(frostcfg['client_id'],""))
+    try:
+        r = requests.get(frostcfg['endpointobs'],
+                myrequest,
+                auth=(frostcfg['client_id'],""))
+    except:
+        mylog.error('Something went wrong extracting data.')
+        raise
     # Check if the request worked, print out any errors
-    if r.status_code != 200:
-        print('Error! Returned status code %s' % r.status_code)
+    if not r.ok:
+        mylog.error('Returned status code was %s', r.status_code)
         print(r.text)
-        sys.exit()
+        raise
     # Read into  Pandas DataFrame
     df = pd.read_csv(StringIO(r.text),header=0,
         mangle_dupe_cols=True, parse_dates=['referenceTime'],
@@ -203,19 +225,26 @@ def extractdata(frostcfg,station,stmd,output):
 if __name__ == '__main__':
     
     # Parse command line arguments
-    args = parse_arguments()
+    try:
+        args = parse_arguments()
+    except:
+        raise SystemExit('Command line arguments didn\'t parse correctly.')
 
     # Parse configuration file
     cfgstr = parse_cfg(args.cfgfile)
 
     # Initialise logging
     mylog = initialise_logger(cfgstr['output']['logfile'])
-    mylog.info('Configuration finished')
+    mylog.info('Configuration of logging is finished.')
 
     # Loop through stations
+    mylog.info('Process stations requested in configuration file.')
     for station,content in cfgstr['stations'].items():
         if station in ['SN99927']:
             continue
-        print('Requesting data for', station)
+        mylog.info('Requesting data for: %s', station)
         #outputfile = cfgstr['output']['destdir']+'/'+content['filename']+'.nc'
-        extractdata(cfgstr['frostcfg'], station, content, cfgstr['output'])
+        try:
+            extractdata(cfgstr['frostcfg'], station, content, cfgstr['output'])
+        except:
+            raise SystemExit()
