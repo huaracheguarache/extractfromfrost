@@ -15,6 +15,7 @@ import yaml
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
+import pprint
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -79,16 +80,13 @@ def initialise_logger(outputfile = './log'):
 
     return(mylog)
 
-def extractdata(frostcfg,station,stmd,output):
+def getships(frostcfg):
 
-    #print(stmd['boreholes'][0])
-    # Create request for observations
-    mylog.info('Retrieving metadata for station: %s', station)
-    myrequest = 'ids='+station
+    myrequest = {'municipality': 'skip'}
 
-    # Connect and read metadata
+    # Connect and read information
     try:
-        r = requests.get(frostcfg['endpointmeta'],
+        r = requests.get(frostcfg['endpointsources'],
                 myrequest,
                 auth=(frostcfg['client_id'],""))
     except:
@@ -99,23 +97,46 @@ def extractdata(frostcfg,station,stmd,output):
         mylog.error('Returned status code was %s', r.status_code)
         print(r.text)
         raise
-    metadata = json.loads(r.text)
-    # Check that the station has data in the period requested.
-    # Sometimes this will fail anyway since there is no data due to technical issues and the station is still considered active.
-    if 'validTo' in metadata['data'][0].keys():
-        if datetime.strptime(args.startday,'%Y-%m-%d') > datetime.strptime(metadata['data'][0]['validTo'],'%Y-%m-%dT%H:%M:%S.%fZ'): 
-            mylog.warn('Station %s doesn\'t contain data as late as this.', station)
-            return
-    if 'validFrom' in metadata['data'][0].keys():
-        if datetime.strptime(args.endday,'%Y-%m-%d') < datetime.strptime(metadata['data'][0]['validFrom'],'%Y-%m-%dT%H:%M:%S.%fZ'):
-            mylog.warn('Station %s doesn\'t contain data as early as this.', station)
-            return
+    mylist = r.json()
+    return(mylist)
+
+def extractdata(frostcfg,station,stmd,output):
+
+    # Create request for available parameters
+    mylog.info('Retrieving parameters for station: %s', station)
+    myrequest = {'sources': station}
+
+    # Connect and read metadata
+    r = requests.get(frostcfg['endpointparameters'],
+            myrequest,
+            auth=(frostcfg['client_id'],""))
+    # Check if the request worked, print out any errors
+    #print(r.text)
+    if not r.ok:
+        mylog.error('Returned status code was %s, message was:\n%s', r.status_code, r.text)
+        raise
+    parameterlist = json.loads(r.text)
+    #pprint.pprint(parameterlist)
+    # Create list of parameters to extract, latitude and olongitude are automatically added. Only checking for observations, i.e. data within hours and minutes, not daily or monthly aggregates.
+    myparameters = ''
+    i = 0
+    for item in parameterlist['data']:
+        if 'PT' in item['timeResolution']:
+            print(item['timeResolution']+' - '+item['elementId'])
+            if i == 0:
+                myparameters = item['elementId']
+            else:
+                myparameters += ','+item['elementId']
+            i+=1 
+
     # Create request for observations
     mylog.info('Retrieving data for station: %s', station)
-    myrequest = ('sources='+station+'&elements='
-        +'.'.join(frostcfg['elements'])
-        +'&fields='+','.join(frostcfg['fields'])
-        +'&referencetime='+'/'.join([args.startday,args.endday]))
+    myrequest = {
+            'sources': station,
+            'elements': myparameters,
+            'fields': ','.join(frostcfg['fields']),
+            'referencetime': '/'.join([args.startday,args.endday])
+            }
     # Connect and read observations
     try:
         r = requests.get(frostcfg['endpointobs'],
@@ -131,57 +152,42 @@ def extractdata(frostcfg,station,stmd,output):
     if not r.status_code == 200:
         mylog.error('Returned status code was %s\nmessage:\n%s', r.status_code, r.text)
         raise
-    # Read into  Pandas DataFrame
+    # Read into  Pandas DataFrame, assuming - is used for missing values.
     df = pd.read_csv(StringIO(r.text),header=0,
         mangle_dupe_cols=True, parse_dates=['referenceTime'],
         index_col=False,na_values=['-'])
 
-    # Create data frame for each time step (i.e. a profile)
-    #print(list(df.columns))
-    ntime = 0
-    mytimes = []
-    myprofiles = list()
-    mydepths = []
-    for i in df.loc[:,'referenceTime']:
-        #print(type(i))
-        mytimes.append(i)
-        mydata = {
-                'depth':df.filter(like='depth_below_surface',axis='columns').iloc[ntime].values,
-                'temperature':df.filter(like='soil_temperature',axis='columns').iloc[ntime].values
-                }
-        mytmpdata = pd.DataFrame(mydata).sort_values(by='depth')
-        myprofiles.append(mytmpdata.temperature)
-        mydepths = mytmpdata.depth
-        ntime += 1
+    print(list(df.columns))
 
-    datasetstart = min(mytimes).strftime('%Y-%m-%dT%H:%M:%SZ')
-    datasetend = max(mytimes).strftime('%Y-%m-%dT%H:%M:%SZ')
-    datasetstart4filename = min(mytimes).strftime('%Y%m%d')
-    datasetend4filename = max(mytimes).strftime('%Y%m%d')
-    mytimes = (pd.to_datetime(mytimes,
-        utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
-    da_profile = xr.DataArray(myprofiles, 
-            dims=['time','depth'],
-            coords={
-                'time':mytimes,
-                'depth':mydepths})
-    da_profile.name = 'soil_temperature'
-    da_profile.attrs['name'] = 'temperature'
-    da_profile.attrs['standard_name'] = 'soil_temperature'
-    da_profile.attrs['units'] = 'degree_Celsius'
-    da_profile.depth.attrs['name'] = 'depth'
-    da_profile.depth.attrs['standard_name'] = 'depth'
-    da_profile.depth.attrs['long_name'] = 'depth below surface in centimeters'
-    da_profile.depth.attrs['units'] = 'centimeter'
-    da_profile.depth.attrs['positive'] = 'down'
-    da_profile.time.attrs['standard_name'] = 'time'
-    da_profile.time.attrs['units'] = 'seconds since 1970-01-01 00:00:00+0'
+    timemin = min(df['referenceTime'])
+    timemax = max(df['referenceTime'])
+    datasetstart = timemin.strftime('%Y-%m-%dT%H:%M:%SZ')
+    datasetend = timemax.strftime('%Y-%m-%dT%H:%M:%SZ')
+    datasetstart4filename = timemin.strftime('%Y%m%d')
+    datasetend4filename = timemax.strftime('%Y%m%d')
+    mytimes = (pd.to_datetime(df['referenceTime'], utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
+    print('So far so good...')
+    da_timeseries = xr.DataArray(df, 
+            dims=['time'],
+            coords={'time':mytimes})
+    print('So far so good...')
+##    da_timeseries.name = 'soil_temperature'
+##    da_timeseries.attrs['name'] = 'temperature'
+##    da_timeseries.attrs['standard_name'] = 'soil_temperature'
+##    da_timeseries.attrs['units'] = 'degree_Celsius'
+##    da_timeseries.depth.attrs['name'] = 'depth'
+##    da_timeseries.depth.attrs['standard_name'] = 'depth'
+##    da_timeseries.depth.attrs['long_name'] = 'depth below surface in centimeters'
+##    da_timeseries.depth.attrs['units'] = 'centimeter'
+##    da_timeseries.depth.attrs['positive'] = 'down'
+##    da_timeseries.time.attrs['standard_name'] = 'time'
+##    da_timeseries.time.attrs['units'] = 'seconds since 1970-01-01 00:00:00+0'
 
     # Need to convert from dataarray to dataset in order to add global
     # attributes
     ds_profile = da_profile.to_dataset()
-    ds_profile.attrs['featureType'] = 'timeSeriesProfile'
-    ds_profile.attrs['title'] = 'Permafrost borehole measurements at '+stmd['name']
+    ds_profile.attrs['featureType'] = 'timeSeries'
+    ds_profile.attrs['title'] = 'Weather station information from ship '+stmd['name']
     ds_profile.attrs['summary'] = output['abstract']
     ds_profile.attrs['license'] = metadata['license']
     ds_profile.attrs['time_coverage_start'] = datasetstart
@@ -239,14 +245,21 @@ if __name__ == '__main__':
     mylog = initialise_logger(cfgstr['output']['logfile'])
     mylog.info('Configuration of logging is finished.')
 
-    # Loop through stations
-    mylog.info('Process stations requested in configuration file.')
-    for station,content in cfgstr['stations'].items():
-        if station in ['SN99927']:
-            continue
-        mylog.info('Requesting data for: %s', station)
-        #outputfile = cfgstr['output']['destdir']+'/'+content['filename']+'.nc'
+    # Find all ships available
+    mylog.info('Retrieve all ships available in the data storage.')
+    try:
+        ships = getships(cfgstr['frostcfg'])
+    except:
+        mylog.warn('Couldn\'t get the list of ships in data storage.')
+        raise SystemExit()
+    pprint.pprint(ships)
+
+    # Loop through ships
+    mylog.info('Processing ships from the list.')
+    for item in ships['data']:
+        mylog.info('Extracting information for %s - %s',item['name'], item['id'])
         try:
-            extractdata(cfgstr['frostcfg'], station, content, cfgstr['output'])
+            extractdata(cfgstr['frostcfg'], item['id'], cfgstr['stations']['SN15270'], cfgstr['output'])
         except:
+            mylog.error('Something went horrible wrong here.')
             raise SystemExit()
