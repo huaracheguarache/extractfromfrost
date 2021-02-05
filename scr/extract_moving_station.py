@@ -102,21 +102,31 @@ def getships(frostcfg):
 
 def extractdata(frostcfg,station,stmd,output):
 
-    # Create request for available parameters
+    # Connect and read metadata for the station
+    mylog.info('Retrieving metadata for station: %s', station)
+    myrequest = {'ids': station}
+    r = requests.get(frostcfg['endpointsources'],
+            myrequest,
+            auth=(frostcfg['client_id'],""))
+    # Check if the request worked, print out any errors
+    if not r.ok:
+        mylog.error('Returned status code was %s with response %s', r.status_code, r.text)
+        raise
+    metadata = json.loads(r.text)
+
+    # Connect and read information on available parameters at the station
     mylog.info('Retrieving parameters for station: %s', station)
     myrequest = {'sources': station}
-
-    # Connect and read metadata
     r = requests.get(frostcfg['endpointparameters'],
             myrequest,
             auth=(frostcfg['client_id'],""))
     # Check if the request worked, print out any errors
-    #print(r.text)
     if not r.ok:
         mylog.error('Returned status code was %s, message was:\n%s', r.status_code, r.text)
         raise
     parameterlist = json.loads(r.text)
-    #pprint.pprint(parameterlist)
+    pprint.pprint(parameterlist)
+    sys.exit()
     # Create list of parameters to extract, latitude and olongitude are automatically added. Only checking for observations, i.e. data within hours and minutes, not daily or monthly aggregates.
     myparameters = ''
     i = 0
@@ -157,20 +167,20 @@ def extractdata(frostcfg,station,stmd,output):
         mangle_dupe_cols=True, parse_dates=['referenceTime'],
         index_col=False,na_values=['-'])
 
-    print(list(df.columns))
+    columnnames = list(df.columns)
+    columnnames = [s.replace('(-)','') for s in list(df.columns)]
+    columnnames[columnnames.index('referenceTime')] = 'time'
+    df.columns = columnnames
 
-    timemin = min(df['referenceTime'])
-    timemax = max(df['referenceTime'])
+    timemin = min(df['time'])
+    timemax = max(df['time'])
     datasetstart = timemin.strftime('%Y-%m-%dT%H:%M:%SZ')
     datasetend = timemax.strftime('%Y-%m-%dT%H:%M:%SZ')
     datasetstart4filename = timemin.strftime('%Y%m%d')
     datasetend4filename = timemax.strftime('%Y%m%d')
-    mytimes = (pd.to_datetime(df['referenceTime'], utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
-    print('So far so good...')
-    da_timeseries = xr.DataArray(df, 
-            dims=['time'],
-            coords={'time':mytimes})
-    print('So far so good...')
+    mytimes = (pd.to_datetime(df['time'], utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
+    # Make sure time is dimension and coordinate variable
+    ds_timeseries = df.set_index(['time']).to_xarray()
 ##    da_timeseries.name = 'soil_temperature'
 ##    da_timeseries.attrs['name'] = 'temperature'
 ##    da_timeseries.attrs['standard_name'] = 'soil_temperature'
@@ -183,51 +193,55 @@ def extractdata(frostcfg,station,stmd,output):
 ##    da_timeseries.time.attrs['standard_name'] = 'time'
 ##    da_timeseries.time.attrs['units'] = 'seconds since 1970-01-01 00:00:00+0'
 
-    # Need to convert from dataarray to dataset in order to add global
-    # attributes
-    ds_profile = da_profile.to_dataset()
-    ds_profile.attrs['featureType'] = 'timeSeries'
-    ds_profile.attrs['title'] = 'Weather station information from ship '+stmd['name']
-    ds_profile.attrs['summary'] = output['abstract']
-    ds_profile.attrs['license'] = metadata['license']
-    ds_profile.attrs['time_coverage_start'] = datasetstart
-    ds_profile.attrs['time_coverage_end'] = datasetend
-    ds_profile.attrs['geospatial_lat_min'] = metadata['data'][0]['geometry']['coordinates'][1]
-    ds_profile.attrs['geospatial_lat_max'] = metadata['data'][0]['geometry']['coordinates'][1]
-    ds_profile.attrs['geospatial_lon_min'] = metadata['data'][0]['geometry']['coordinates'][0]
-    ds_profile.attrs['geospatial_lon_max'] = metadata['data'][0]['geometry']['coordinates'][0]
-    ds_profile.attrs['creator_name'] = stmd['PrincipalInvestigator'] 
-    ds_profile.attrs['creator_email'] = stmd['PrincipalInvestigatorEmail']
-    ds_profile.attrs['creator_url'] = stmd['PrincipalInvestigatorOrganisationURL']
-    ds_profile.attrs['creator_institution'] = stmd['PrincipalInvestigatorOrganisation']
-    ds_profile.attrs['keywords'] = 'Earth Science > Cryosphere > Frozen Ground > Permafrost > Permafrost Temperature,Earth Science > Land Surface > Soils > Soil temperature'
-    ds_profile.attrs['keywords_vocabulary'] = 'GCMD'
-    ds_profile.attrs['publisher_name'] = ''
-    ds_profile.attrs['publisher_email'] = 'adc@met.no'
-    ds_profile.attrs['publisher_url'] = 'https://adc.met.no/'
-    ds_profile.attrs['publisher_institution'] = 'Norwegian Meteorlogical Institute'
-    ds_profile.attrs['Conventions'] = 'ACDD, CF-1.8'
-    ds_profile.attrs['date_created'] = metadata['createdAt']
-    ds_profile.attrs['history'] = metadata['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
-    ds_profile.attrs['source'] = 'Soil temperature from permafrost boreholes'
-    ds_profile.attrs['wigosId'] = metadata['data'][0]['wigosId']
-    ds_profile.attrs['METNOId'] =  station
-    ds_profile.attrs['project'] = stmd['Project']
+    # Need to convert from dataarray to dataset in order to add global attributes
+    ds_timeseries.attrs['featureType'] = 'timeSeries'
+    ds_timeseries.attrs['title'] = 'Weather station information from ship '+stmd['name']
+    ds_timeseries.attrs['summary'] = output['abstract']
+    ds_timeseries.attrs['license'] = metadata['license']
+    ds_timeseries.attrs['time_coverage_start'] = datasetstart
+    ds_timeseries.attrs['time_coverage_end'] = datasetend
+    ds_timeseries.attrs['geospatial_lat_min'] = min(ds_timeseries.data_vars['latitude'].values)
+    ds_timeseries.attrs['geospatial_lat_max'] = max(ds_timeseries.data_vars['latitude'].values)
+    ds_timeseries.attrs['geospatial_lon_min'] = min(ds_timeseries.data_vars['longitude'].values)
+    ds_timeseries.attrs['geospatial_lon_max'] = max(ds_timeseries.data_vars['longitude'].values)
+    ds_timeseries.attrs['creator_name'] = stmd['PrincipalInvestigator'] 
+    ds_timeseries.attrs['creator_email'] = stmd['PrincipalInvestigatorEmail']
+    ds_timeseries.attrs['creator_url'] = stmd['PrincipalInvestigatorOrganisationURL']
+    ds_timeseries.attrs['creator_institution'] = stmd['PrincipalInvestigatorOrganisation']
+    # Remember to fix these FIXME
+    ds_timeseries.attrs['keywords'] = 'Earth Science > Cryosphere > Frozen Ground > Permafrost > Permafrost Temperature,Earth Science > Land Surface > Soils > Soil temperature'
+    ds_timeseries.attrs['keywords_vocabulary'] = 'GCMD'
+    ds_timeseries.attrs['publisher_name'] = ''
+    ds_timeseries.attrs['publisher_email'] = 'adc@met.no'
+    ds_timeseries.attrs['publisher_url'] = 'https://adc.met.no/'
+    ds_timeseries.attrs['publisher_institution'] = 'Norwegian Meteorlogical Institute'
+    ds_timeseries.attrs['Conventions'] = 'ACDD, CF-1.8'
+    ds_timeseries.attrs['date_created'] = metadata['createdAt']
+    ds_timeseries.attrs['history'] = metadata['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
+    ds_timeseries.attrs['source'] = 'Soil temperature from permafrost boreholes'
+    ds_timeseries.attrs['wigosId'] = metadata['data'][0]['wigosId']
+    ds_timeseries.attrs['METNOId'] =  station
+    ds_timeseries.attrs['project'] = stmd['Project']
 
-    # Plotting  works best on DataArray, not sure how to do on DataSet, i.e.
-    # extract DataArray from Dataset first
-    #da_profile.plot(aspect=0.80,size=6,y='depth',yincrease=False)
-    #plt.savefig('myfig.png')
-    #plt.show()
+    ds_timeseries.encoding['unlimited_dims'] = 'time'
+
+    pprint.pprint(metadata['data'])
+    print(metadata['data'][0]['name'])
+    print(metadata['data'][0]['stationHolders'])
+    print(ds_timeseries)
 
     # Dump to Netcdf
-    #print(ds_profile)
-    outputfile = output['destdir']+'/'+stmd['filename']+'_'+datasetstart4filename+'-'+datasetend4filename+'.nc'
-    ds_profile.to_netcdf(outputfile,
-            encoding={'depth': {'dtype':'int32'},
-                'time': {'dtype': 'int32'},
-                'soil_temperature': {'dtype': 'float32'}
-                })
+    outputfile = output['destdir']+'/ship-'+metadata['data'][0]['wigosId']+'_'+datasetstart4filename+'-'+datasetend4filename+'.nc'
+    mylog.info('Dumping data to NetCDF-CF:\n%s', outputfile)
+    try:
+        ds_timeseries.to_netcdf(outputfile)
+    except:
+        mylog.error('Creation of NetCDF file didn\'t work properly\n%s', sys.exc_info()[0])
+        raise
+##            encoding={'depth': {'dtype':'int32'},
+##                'time': {'dtype': 'int32'},
+##                'soil_temperature': {'dtype': 'float32'}
+##                })
     return
 
 if __name__ == '__main__':
