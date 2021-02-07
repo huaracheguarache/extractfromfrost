@@ -125,14 +125,16 @@ def extractdata(frostcfg,station,stmd,output):
         mylog.error('Returned status code was %s, message was:\n%s', r.status_code, r.text)
         raise
     parameterlist = json.loads(r.text)
-    pprint.pprint(parameterlist)
-    sys.exit()
+    #pprint.pprint(parameterlist)
+    #sys.exit()
     # Create list of parameters to extract, latitude and olongitude are automatically added. Only checking for observations, i.e. data within hours and minutes, not daily or monthly aggregates.
     myparameters = ''
     i = 0
+    avvars = []
     for item in parameterlist['data']:
         if 'PT' in item['timeResolution']:
             print(item['timeResolution']+' - '+item['elementId'])
+            avvars.append(item['elementId'])
             if i == 0:
                 myparameters = item['elementId']
             else:
@@ -181,17 +183,26 @@ def extractdata(frostcfg,station,stmd,output):
     mytimes = (pd.to_datetime(df['time'], utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
     # Make sure time is dimension and coordinate variable
     ds_timeseries = df.set_index(['time']).to_xarray()
-##    da_timeseries.name = 'soil_temperature'
-##    da_timeseries.attrs['name'] = 'temperature'
-##    da_timeseries.attrs['standard_name'] = 'soil_temperature'
-##    da_timeseries.attrs['units'] = 'degree_Celsius'
-##    da_timeseries.depth.attrs['name'] = 'depth'
-##    da_timeseries.depth.attrs['standard_name'] = 'depth'
-##    da_timeseries.depth.attrs['long_name'] = 'depth below surface in centimeters'
-##    da_timeseries.depth.attrs['units'] = 'centimeter'
-##    da_timeseries.depth.attrs['positive'] = 'down'
-##    da_timeseries.time.attrs['standard_name'] = 'time'
-##    da_timeseries.time.attrs['units'] = 'seconds since 1970-01-01 00:00:00+0'
+    # Make sure metadata are correct for variables
+    pprint.pprint(parameterlist)
+    #print(type(parameterlist))
+    #print(parameterlist['data'])
+##    avvars = []
+##    for item in parameterlist['data']:
+##        avvars.append(item['elementId'])
+    print("#################")
+    for item in ds_timeseries.data_vars.keys():
+        if item in avvars:
+            for myel in parameterlist['data']:
+                if item in myel['elementId']:
+                    ds_timeseries.data_vars[item].attrs['standard_name'] = myel['elementId']
+                    ds_timeseries.data_vars[item].attrs['standard_name'] = myel['unit']
+                    ds_timeseries.data_vars[item].attrs['units'] = myel['unit']
+                    #ds_timeseries['data'][0]['_FillValue'] = '-'
+                    break
+    print('Now I have come here...')
+    print(ds_timeseries)
+    sys.exit()
 
     # Need to convert from dataarray to dataset in order to add global attributes
     ds_timeseries.attrs['featureType'] = 'timeSeries'
