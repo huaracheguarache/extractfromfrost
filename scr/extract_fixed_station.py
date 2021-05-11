@@ -15,6 +15,7 @@ import yaml
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
+import re
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -81,13 +82,11 @@ def initialise_logger(outputfile = './log'):
 
 def extractdata(frostcfg,station,stmd,output):
 
-    #print(stmd['boreholes'][0])
     # Create request for observations
-    mylog.info('Retrieving metadata for station: %s', station)
-    myrequest = 'ids='+station
-    print(frostcfg['endpointmeta'])
 
-    # Connect and read metadata
+    # Connect and read metadata about the station
+    mylog.info('Retrieving station metadata for station: %s', station)
+    myrequest = 'ids='+station
     try:
         r = requests.get(frostcfg['endpointmeta'],
                 myrequest,
@@ -97,10 +96,32 @@ def extractdata(frostcfg,station,stmd,output):
         raise
     # Check if the request worked, print out any errors
     if not r.ok:
-        mylog.error('Returned status code was %s', r.status_code)
-        print('>>>>',r.text)
+        mylog.error('Returned status code was %s saying %s', r.status_code, r.text)
+        #print('>>>>',r.text)
         raise
     metadata = json.loads(r.text)
+
+    # Connect and read metadata about the variables
+    print(frostcfg['timeResolutions'])
+    print(frostcfg['performanceCategories'])
+    mylog.info('Retrieving variables metadata for station: %s', station)
+    myrequest = 'sources='+station+'&elements='+','.join(frostcfg['elements'])+'&timeresolutions='+frostcfg['timeResolutions']+'&performancecategories='+frostcfg['performanceCategories']
+    try:
+        r = requests.get(frostcfg['endpointparameters'],
+                myrequest,
+                auth=(frostcfg['client_id'],""))
+    except:
+        mylog.error('Something went wrong extracting metadata.')
+        raise
+    # Check if the request worked, print out any errors
+    if not r.ok:
+        mylog.error('Returned status code was %s saying %s', r.status_code, r.text)
+        #print('>>>>',r.text)
+        raise
+    variables = json.loads(r.text)
+    #print(json.dumps(variables, indent=4, sort_keys=True))
+    #print(json.dumps(variables['data'], indent=4, sort_keys=True))
+
     # Check that the station has data in the period requested.
     # Sometimes this will fail anyway since there is no data due to technical issues and the station is still considered active.
     if 'validTo' in metadata['data'][0].keys():
@@ -116,8 +137,7 @@ def extractdata(frostcfg,station,stmd,output):
     myrequest = ('sources='+station+'&elements='
         +'.'.join(frostcfg['elements'])
         +'&fields='+','.join(frostcfg['fields'])
-        +'&referencetime='+'/'.join([args.startday,args.endday]))
-    print(myrequest)
+        +'&referencetime='+'/'.join([args.startday,args.endday])+'&performancecategories='+frostcfg['performanceCategories']+'&timeresolutions='+frostcfg['timeResolutions'])
     # Connect and read observations
     try:
         r = requests.get(frostcfg['endpointobs'],
@@ -139,11 +159,13 @@ def extractdata(frostcfg,station,stmd,output):
         index_col=False,na_values=['-'])
     datasetstart4filename = min(df['referenceTime']).strftime('%Y%m%d')
     datasetend4filename = max(df['referenceTime']).strftime('%Y%m%d')
+    datasetstart = min(df['referenceTime']).strftime('%Y-%m-%dT%H:%M:%SZ')
+    datasetend = max(df['referenceTime']).strftime('%Y-%m-%dT%H:%M:%SZ')
     mytimes = (pd.to_datetime(df['referenceTime'],
         utc=True)-pd.Timestamp("1970-01-01", tz='UTC')) // pd.Timedelta('1s')
     df['time'] = mytimes
     df = df.set_index('time')
-    df = df.rename(columns={'air_temperature(-)':'air_temperature','dew_point_temperature(-)':'dew_point_temperature','wind_speed(-)':'wind_speed','wind_from_direction(-)':'wind_from_direction'})
+    df = df.rename(columns=lambda x: re.sub('\(-\)','',x))
     df = df.drop(columns=['referenceTime','sourceId'])
 
     # Create Dataset from Dataframe
@@ -152,18 +174,22 @@ def extractdata(frostcfg,station,stmd,output):
     # Specify variable attributes
     ds_station.time.attrs['standard_name'] = 'time'
     ds_station.time.attrs['units'] = 'seconds since 1970-01-01 00:00:00+0'
+    for item in variables['data']:
+        varname = item['elementId']
+        ds_station[varname].attrs['standard_name'] = varname
+        ds_station[varname].attrs['units'] = item['unit']
 
     # Add global attributes
     ds_station.attrs['featureType'] = 'timeSeries'
     ds_station.attrs['title'] = 'Weather station '+stmd['name']
     ds_station.attrs['summary'] = output['abstract']
     ds_station.attrs['license'] = metadata['license']
-#    ds_station.attrs['time_coverage_start'] = datasetstart
-#    ds_station.attrs['time_coverage_end'] = datasetend
-#    ds_station.attrs['geospatial_lat_min'] = metadata['data'][0]['geometry']['coordinates'][1]
-#    ds_station.attrs['geospatial_lat_max'] = metadata['data'][0]['geometry']['coordinates'][1]
-#    ds_station.attrs['geospatial_lon_min'] = metadata['data'][0]['geometry']['coordinates'][0]
-#    ds_station.attrs['geospatial_lon_max'] = metadata['data'][0]['geometry']['coordinates'][0]
+    ds_station.attrs['time_coverage_start'] = datasetstart
+    ds_station.attrs['time_coverage_end'] = datasetend
+    ds_station.attrs['geospatial_lat_min'] = metadata['data'][0]['geometry']['coordinates'][1]
+    ds_station.attrs['geospatial_lat_max'] = metadata['data'][0]['geometry']['coordinates'][1]
+    ds_station.attrs['geospatial_lon_min'] = metadata['data'][0]['geometry']['coordinates'][0]
+    ds_station.attrs['geospatial_lon_max'] = metadata['data'][0]['geometry']['coordinates'][0]
     ds_station.attrs['creator_name'] = stmd['PrincipalInvestigator'] 
     ds_station.attrs['creator_email'] = stmd['PrincipalInvestigatorEmail']
     ds_station.attrs['creator_url'] = stmd['PrincipalInvestigatorOrganisationURL']
@@ -181,6 +207,7 @@ def extractdata(frostcfg,station,stmd,output):
     ds_station.attrs['wigosId'] = metadata['data'][0]['wigosId']
     ds_station.attrs['METNOId'] =  station
     ds_station.attrs['project'] = stmd['Project']
+    #print(metadata)
 
     # Dump to Netcdf
     print(ds_station)
