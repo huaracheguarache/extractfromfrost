@@ -210,7 +210,7 @@ def extractdata(frostcfg,station,stmd,output):
     #print(metadata)
 
     # Dump to Netcdf
-    print(ds_station)
+    #print(ds_station)
     outputfile = output['destdir']+'/'+stmd['filename']+'_'+datasetstart4filename+'-'+datasetend4filename+'.nc'
     ds_station.to_netcdf(outputfile,
             encoding={'time': {'dtype': 'int32'}})
