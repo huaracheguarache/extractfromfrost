@@ -352,6 +352,12 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
     
     #STATIONS LOOP
     for s in sts:
+        
+        if os.path.exists(os.path.join(output['destdir'], s)):
+            pass
+        else:
+            os.mkdir(os.path.join(output['destdir'], s))
+        
         station_dict = [x for x in sts_dicts if x['id']==s][0]
         
         # Connect and read metadata about the station
@@ -589,7 +595,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
             all_ds_station.attrs['project'] = stmd['Project']
         
             # Dump to Netcdf
-            out_folder = os.path.join(output['destdir'], str(datetime.strptime(p[0],'%Y-%m-%d').year))
+            out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
             outputfile = os.path.join(out_folder, s+'_'+datasetstart+'_'+datasetend+'.nc')
             if os.path.exists(out_folder):
                 pass
