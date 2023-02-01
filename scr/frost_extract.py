@@ -35,7 +35,7 @@ def get_keywords_from_json(chosen_category, document_path):
     
     something_dict = json.load(open(document_path))
     if chosen_category not in something_dict:
-        print('the variable requested is not listed in the keywords dictionary')
+        print(chosen_category,'the variable requested is not listed in the keywords dictionary')
     return something_dict.get(chosen_category)
 
 
@@ -145,7 +145,7 @@ def parse_arguments():
         except ValueError:
             raise ValueError
 
-    if args.cfgfile is None:
+    if args.cfgfile is False:
         parser.print_help()
         parser.exit()
 
@@ -226,14 +226,13 @@ def get_stations(frostcfg, pars, mylog, st_type='fixed'):
     
     # Connect and read metadata about the station
     
-    
-    if pars.stations is None:
+    if pars.stations is False:
         mylog.info('Retrieving selected '+st_type+' stations in FROST. %s')
         stations = frostcfg['stations']       
         myrequest = 'ids='+','.join(stations)
         metadata, msger = pull_request(frostcfg['endpointmeta'], myrequest, frostcfg, mylog)
     else:
-        mylog.info('Retrieving all '+st_type+'stations in FROST. %s')
+        mylog.info('Retrieving all '+st_type+' stations in FROST. %s')
         if st_type == 'permafrost':
             myrequest = 'types=SensorSystem&elements=soil_temperature'
         elif st_type == 'moving':
@@ -283,7 +282,7 @@ def get_periods(pars, metadata, direc, backwards=None):
             else:
                 folder = os.path.join(direc, metadata['id'], str(y))
             files = glob.glob(folder+'/*.nc')
-            dia = [datetime.strptime(os.path.split(f)[1][29:39], '%Y-%m-%d') for f in files]
+            dia = [datetime.strptime(os.path.split(f)[1][19:29], '%Y-%m-%d') for f in files]
             if not dia:
                 from_day = datetime(y, 1, 1)
                 periods = periods + list(gen_periods(from_day, to_day))
@@ -318,18 +317,23 @@ def gen_periods(from_day, to_day):
             yield (starting_point, false_end)
             
 
-def set_encoding(ds, fill=-999, time_name = 'time'):
+def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 1970-01-01 00:00:00'):
     
     all_encode = {}
         
     for v in list(ds.keys()):
         if v == time_name:
-            dtip = 'datetime64[m]'
+            dtip = 'i4'
+        elif 'float' in str(ds[v].dtype):
+            dtip = 'f4'
+        elif 'int' in str(ds[v].dtype):
+            dtip = 'i4'
         else:
-            dtip = 'float32'
-        encode = {'zlib': True, 'complevel': 9, 'dtype': dtip, '_FillValue':fill,'scale_factor': 0.1}
-        #encode = {'zlib': True, 'shuffle': False, 'complevel': 9, 'fletcher32': False, 
-         # 'contiguous': False, 'dtype': dtip, '_FillValue':fill,'scale_factor': 0.1}
+            #dtip = str(ds[v].dtype)
+            dtip = 'S1'
+        encode = {'zlib': True, 'complevel': 9, 'dtype': dtip, '_FillValue':fill}
+        if v == time_name:
+            encode['units'] = time_units
             
         all_encode[v] = encode
         
@@ -338,13 +342,20 @@ def set_encoding(ds, fill=-999, time_name = 'time'):
 
 def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
     
-    #resols = ('PT1S', 'PT1M', 'PT5M', 'PT10M', 'PT15M', 'PT20M', 'PT30M', 'PT1H', 'PT3H', 'PT6H', 'PT12H', 'P1D', 'P1M', 'P3M', 'P6M', 'P1Y')
-    resols = ('PT1M', 'PT5M', 'PT10M', 'PT15M', 'PT20M', 'PT30M', 'PT1H', 'PT3H', 'PT6H', 'PT12H', 'P1D', 'P1M', 'P3M', 'P6M', 'P1Y')
-    #We decided to remove 1 sec resolution
+
+    resols = ('PT1S', 'PT1M', 'PT5M', 'PT10M', 'PT15M', 'PT20M', 'PT30M', 'PT1H', 'PT3H', 'PT6H', 'PT12H', 'P1D',
+              'P1M', 'P3M', 'P6M', 'P1Y')
+    freq_dict = {'PT1S':'S', 'PT1M':'min', 'PT5M':'5min', 'PT10M':'10min', 'PT15M':'15min', 'PT20M':'20min',
+                 'PT30M':'30min', 'PT1H':'H', 'PT3H':'3H', 'PT6H':'6H', 'PT12H':'12H', 'P1D':'D', 'P1M':'M', 
+                 'P3M':'3M', 'P6M':'6M', 'P1Y':'Y'}
+    freq_dict_attr = {'PT1S':'1 second', 'PT1M':'1 minute', 'PT5M':'5 minutes',
+                      'PT10M':'10 minutes', 'PT15M':'15 minutes', 'PT20M':'20 minutes',
+                 'PT30M':'30 minutes', 'PT1H':'1 hour', 'PT3H':'3 hours', 'PT6H':'6 hours',
+                 'PT12H':'12 hours', 'P1D':' 1 day', 'P1M':'1 month', 
+                 'P3M':'3 months', 'P6M':'6 months', 'P1Y':'1 year'} 
     performances = ('A', 'B', 'C', 'D')
     avoid_var = ['min', 'max', 'mean', 'PT', 'over_time', 'sum', 'P1D']
     myfillvalue = -999
-    
     
     # Get a list with all stations and some metadata
     
@@ -367,7 +378,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         
         #PERIOD LOOP
         periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and endnig day
-        #print(periods)
         for p in periods:
             print(p)
             #log.info('Downloading data for period: %p', p)
@@ -402,18 +412,31 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 max_perf = performances[min([performances.index(pf) for pf in perfs])]
                 var_dict = [x for x in variables['data'] if x['elementId']==e][0]
                 dir_elements_resol[e] = (max_resol, max_perf, var_dict)
-
+           
             #TIME RESOLUTIONS LOOP
-            counter = True
+            time_dim = {}
             for t in resols:
                 vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
                 if not vars_to_down:
-                    if t == resols[0]:
-                        dates = pd.date_range(p[0], p[1], freq='min')
-                        dates = dates.drop(dates[-1])
-                        all_ds_station = xr.Dataset(coords={'time':(['time'], dates)})
-                        counter = False
                     continue
+                print(p[0], p[1], freq_dict[t])
+                dates = pd.date_range(p[0], p[1], freq=freq_dict[t])
+                dates = dates.drop(dates[-1])
+                t_name = ''.join(['time_', t])
+                time_dim[t_name] = ([t_name], dates)
+               
+            for t in resols:
+                
+                vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
+                if est=='permafrost' and not 'soil_temperature' in vars_to_down:
+                    continue
+                if not vars_to_down:
+                    continue
+                t_name = ''.join(['time_', t])
+
+                if not 'all_ds_station' in locals():
+                    all_ds_station = xr.Dataset(coords={t_name:time_dim[t_name]})
+                    print(all_ds_station.dims)
             
                 # Create request for observations
                 log.info('Retrieving data for station: %s', s)
@@ -421,6 +444,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     +', '.join(vars_to_down)
                     +'&fields='+','.join(frostcfg['fields'])
                     +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+t)
+                
                 # Connect and read observations
                 data, msg_err = pull_request(frostcfg['endpointobs'], 
                              myrequest_data, frostcfg, mylog, s=s, data=True)
@@ -429,15 +453,16 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
 
                 # Read into Pandas DataFrame
                 df = pd.read_csv(StringIO(data.text),header=0,
-                    mangle_dupe_cols=True, parse_dates=['referenceTime'],
+                    mangle_dupe_cols=True, parse_dates=False,
                     index_col=False,na_values=['-'])
                 
-                datasetstart = min(df['referenceTime']).strftime('%Y-%m-%dT%H:%M:%SZ')
-                datasetend = max(df['referenceTime']).strftime('%Y-%m-%dT%H:%M:%SZ')
-
-                df.rename(columns={'referenceTime':'time'}, inplace = True)
-                time_val = df['time'].apply(lambda x: x.replace(tzinfo=None))
-     
+                #Parsing time
+                timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
+                datasetstart = min(timos).strftime('%Y-%m-%dT%H:%M:%SZ')
+                datasetend = max(timos).strftime('%Y-%m-%dT%H:%M:%SZ')
+                df.loc[:,t_name] = timos
+                df.drop(['referenceTime'], axis=1, inplace=True)
+    
                 if est=='permafrost':
                     perma = 'soil_temperature'
                     cols = df.columns
@@ -448,7 +473,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     myprofiles = list()
                     mydepths = list()
                     quality_check = []
-                    for i in df.loc[:,'time']:
+                    for i in df.loc[:,t_name]:
                         mydata = {
                                 'depth':df.iloc[ntime, depth_num].values,
                                 perma:df.iloc[ntime, soil_num].values
@@ -465,32 +490,37 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         ntime += 1
                     if True in quality_check:   
                         da_profile = xr.DataArray(myprofiles, 
-                                dims=['time','depth'],
+                                dims=[t_name,'depth'],
                                 coords={
-                                    'time':mytimes,
+                                    t_name:mytimes,
                                     'depth':mydepths})
                     
                     df.drop(df.columns[depth_num+soil_num],axis=1,inplace=True)
                     if perma in vars_to_down:
                         vars_to_down.remove(perma)
-
-                df = df.set_index('time')
+                
+                #SOME CLEANNING
+                df = df.set_index(t_name)
                 cols = df.columns
                 for c in cols:
                     if c.find('(') > 0 and c.find('(')==c.rfind('('):
                         df.rename(columns={c:c[:c.find('(')]}, inplace=True)
                     elif c.find('(') > 0 and c.find('(') < c.rfind('('):
                         df.rename(columns={c:c[:c.rfind('(')]}, inplace=True)
-
+                    if c.find("\\") > 0:
+                        df.rename(columns={c:c[:c.find("\\")]}, inplace=True)
+                    
                 included =[]
                 excluded =[]
                 for el in vars_to_down:
                     for c in cols:
+                        if el == 'None':
+                            excluded.append(el)
                         if el in c:
                             included.append(el)
                             break
-                    else:
-                        excluded.append(el)
+                        else:
+                            excluded.append(el)
                 if not included:
                     continue
                 df = df[included].copy()                
@@ -499,29 +529,56 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         df.loc[:,ex] = [myfillvalue]*len(df.index)
                 
                 # Create Dataset from Dataframe
-                ds_station = xr.Dataset.from_dataframe(df)
-                ds_station = ds_station.assign_coords(time=time_val.values)
+                df.reset_index(drop=False, inplace=True)
+                big_dictio = {"coords":{}, "dims":t_name, "data_vars":{}}
+                for col in df.columns:
+                    if col == t_name:
+                        big_dictio["coords"][col] = {"dims":col, "data":timos}
+                    else:
+                        big_dictio["data_vars"][col] = {"dims":t_name, "data":df[col].values}
+                ds_station = xr.Dataset.from_dict(big_dictio)
+  
+                voc_list =[]              
+  
                 if est=='permafrost' and 'da_profile' in locals():
+                    
+                    #To include only the soil temperature
+                    print(ds_station.dims)
+                    ds_station = ds_station.drop([v for v in ds_station.data_vars])
+                    
                     ds_station = ds_station.assign_coords(depth=da_profile.depth.values)
                     ds_station['depth'].attrs['standard_name'] = 'depth'
                     ds_station['depth'].attrs['long_name'] = 'depth below surface'
                     ds_station['depth'].attrs['units'] = 'cm'
 
-                    ds_station[perma] = (('time', 'depth'), da_profile.values)
+                    ds_station[perma] = ((t_name, 'depth'), da_profile.values)
                     ds_station[perma].attrs['long_name'] = perma.replace('_', ' ')
                     ds_station[perma].attrs['standard_name'] = perma
                     ds_station[perma].attrs['units'] = 'degC'
                     ds_station[perma].attrs['performance_category'] = get_performance_category(dir_elements_resol[perma][1])
                     ds_station[perma].attrs['fillvalue'] = float(myfillvalue)
-                    ds_station[perma].attrs['keywords'] = get_keywords_from_json(perma, output['json_path'])
+                    voc_list.append(get_keywords_from_json(perma, output['json_path']))
+                    var_dims = [item for v in ds_station.data_vars for item in ds_station[v].dims]
+                    for dd in list(ds_station.dims):
+                        print(dd)
+                        if not dd in var_dims:
+                            #print(ds_station.dims)
+                            ds_station = ds_station.drop_dims(dd)
+                            #print(ds_station.dims)
+                            try:
+                                ds_station = ds_station.drop(dd)
+                            except KeyError:
+                                continue
                     del da_profile
                 
+                print(ds_station.dims)
                 # Specify variable attributes
-                ds_station['time'].attrs['standard_name'] = 'time'
-                ds_station['time'].attrs['long_name'] = 'time'
-                ds_station['time'].encoding['units'] = 'minutes since '+p[0]
+                ds_station[t_name].attrs['standard_name'] = 'time'
+                ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
+                ds_station[t_name].attrs['units'] = 'minutes since '+p[0]+' 00:00:00'
+                #ds_station['time'].encoding['units'] = 'minutes since '+p[0]+' 00:00:00'
                 check_list = []
-                for vname in vars_to_down:
+                for vname in list(ds_station.data_vars):
                     if vname in check_list:
                         continue
                     else:
@@ -532,79 +589,123 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         except KeyError:
                             ds_station[vname].attrs['long_name'] = vname.replace('_', ' ')
                         ds_station[vname].attrs['standard_name'] = vname
-                        ds_station[vname].attrs['units'] = dir_elements_resol[vname][2]['unit']
+                        #print(vname)
+                        #print(dir_elements_resol[vname][0])
+                        #print(dir_elements_resol[vname][1])
+                        #print(dir_elements_resol[vname][2])
+                        try:
+                            ds_station[vname].attrs['units'] = dir_elements_resol[vname][2]['unit']
+                        except KeyError:
+                            ds_station[vname].attrs['units'] = 'S1'
                         ds_station[vname].attrs['performance_category'] = get_performance_category(dir_elements_resol[vname][1])
-                        ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
-                        ds_station[vname].attrs['keywords'] = get_keywords_from_json(vname, output['json_path'])
-                        check_list.append(vname)
-                 
+                        #ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
+                        voc_list.append(get_keywords_from_json(vname, output['json_path']))
+                        check_list.append(''.join(['GCMDSK:', vname]))
+                print(ds_station.dims)
+                '''
                 #Aggregate datasets with same dimension, but different dimension length
-                if counter:
+                if not 'all_ds_station' in locals():
                     all_ds_station = ds_station
-                    counter = False
-                else:
-                    all_ds_station = xr.merge([all_ds_station, ds_station], 
+                else:                    
+                    all_ds_station = xr.merge([all_ds_station, ds_station],
+                                              compat = "no_conflicts",
                                               fill_value = myfillvalue, join='left',
                                               combine_attrs ='no_conflicts')
+                '''
 
-            else:
+                for v in list(ds_station.variables):
+                    if est=='permafrost' and v != perma:
+                        continue
+                    if 'time' in v:
+                        continue
+                    all_ds_station[v] = ds_station[v]
+                del ds_station
+                
                 if msger:
                     continue
                 else:
                     pass
-                
-            # Add global attributes
-            if est == 'moving' and 'latitude' in all_ds_station.data_vars:
-                all_ds_station.attrs['title'] = 'Weather station information from ship '+s
-                lats = np.array(all_ds_station.data_vars['latitude'].values).flatten().astype('float')
-                lons = np.array(all_ds_station.data_vars['longitude'].values).flatten().astype('float')
-                lats[lats<-900] = np.nan
-                lons[lons<-900] = np.nan
-                all_ds_station.attrs['geospatial_lat_min'] = np.nanmin(lats)
-                all_ds_station.attrs['geospatial_lat_max'] = np.nanmax(lats)
-                all_ds_station.attrs['geospatial_lon_min'] = np.nanmin(lons)
-                all_ds_station.attrs['geospatial_lon_max'] = np.nanmax(lons)
-            elif est == 'moving':
-                all_ds_station.attrs['title'] = 'Weather station information from ship '+s
-            else:
-                all_ds_station.attrs['title'] = 'Weather station '+s
-                all_ds_station.attrs['geospatial_lat_min'] = station_dict['geometry']['coordinates'][1]
-                all_ds_station.attrs['geospatial_lat_max'] = station_dict['geometry']['coordinates'][1]
-                all_ds_station.attrs['geospatial_lon_min'] = station_dict['geometry']['coordinates'][0]
-                all_ds_station.attrs['geospatial_lon_max'] = station_dict['geometry']['coordinates'][0]
-            
-            all_ds_station.attrs['featureType'] = 'timeSeries'
-            all_ds_station.attrs['summary'] = stmd['abstract']
-            all_ds_station.attrs['license'] = metadata['license']
-            all_ds_station.attrs['time_coverage_start'] = datasetstart
-            all_ds_station.attrs['time_coverage_end'] = datasetend
-            all_ds_station.attrs['creator_name'] = stmd['PrincipalInvestigator'] 
-            all_ds_station.attrs['creator_email'] = stmd['PrincipalInvestigatorEmail']
-            all_ds_station.attrs['creator_url'] = stmd['PrincipalInvestigatorOrganisationURL']
-            all_ds_station.attrs['creator_institution'] = stmd['PrincipalInvestigatorOrganisation']
-            all_ds_station.attrs['keywords_vocabulary'] = 'GCMD'
-            all_ds_station.attrs['publisher_name'] = ''
-            all_ds_station.attrs['publisher_email'] = 'adc@met.no'
-            all_ds_station.attrs['publisher_url'] = 'https://adc.met.no/'
-            all_ds_station.attrs['publisher_institution'] = 'Norwegian Meteorlogical Institute'
-            all_ds_station.attrs['Conventions'] = 'ACDD, CF-1.8'
-            all_ds_station.attrs['date_created'] = metadata['createdAt']
-            all_ds_station.attrs['history'] = metadata['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
-            all_ds_station.attrs['wigosId'] = station_dict['wigosId']
-            all_ds_station.attrs['METNOId'] =  s
-            all_ds_station.attrs['project'] = stmd['Project']
-        
-            # Dump to Netcdf
-            out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
-            outputfile = os.path.join(out_folder, s+'_'+datasetstart+'_'+datasetend+'.nc')
-            if os.path.exists(out_folder):
-                pass
-            else:
-                os.mkdir(out_folder)
-            #all_ds_station = xr.decode_cf(all_ds_station)
-            # The above line release an error: TypeError: The DTypes <class 'numpy.dtype[int64]'> and <class 'numpy.dtype[datetime64]'> do not have a common DType. For example they cannot be stored in a single array unless the dtype is `object`.
-            all_ds_station.to_netcdf(outputfile,
-                                     encoding=set_encoding(all_ds_station, fill=myfillvalue))
+                 
+                if 'all_ds_station' in  locals():
+                    # Add global attributes
+    
+                    if est == 'moving' and 'latitude' in all_ds_station.data_vars:
+                        all_ds_station.attrs['title'] = 'Weather station information from ship '+s
+                        lats = np.array(all_ds_station.data_vars['latitude'].values).flatten().astype('float')
+                        lons = np.array(all_ds_station.data_vars['longitude'].values).flatten().astype('float')
+                        all_ds_station.attrs['geospatial_lat_min'] = np.nanmin(lats)
+                        all_ds_station.attrs['geospatial_lat_max'] = np.nanmax(lats)
+                        all_ds_station.attrs['geospatial_lon_min'] = np.nanmin(lons)
+                        all_ds_station.attrs['geospatial_lon_max'] = np.nanmax(lons)
+                    elif est == 'moving':
+                        all_ds_station.attrs['title'] = 'Weather station information from ship '+s
+                        all_ds_station.attrs['featureType'] = 'Trajectory'
+                    elif est=='permafrost':
+                        all_ds_station.attrs['title'] = 'Permafrost station '+s
+                        all_ds_station.attrs['featureType'] = 'timeSeriesProfile'
+                    else:
+                        all_ds_station.attrs['title'] = 'Weather station '+s
+                        all_ds_station.attrs['geospatial_lat_min'] = station_dict['geometry']['coordinates'][1]
+                        all_ds_station.attrs['geospatial_lat_max'] = station_dict['geometry']['coordinates'][1]
+                        all_ds_station.attrs['geospatial_lon_min'] = station_dict['geometry']['coordinates'][0]
+                        all_ds_station.attrs['geospatial_lon_max'] = station_dict['geometry']['coordinates'][0]
+                        all_ds_station.attrs['featureType'] = 'timeSeries'
+                    
+                    all_ds_station.attrs['summary'] = stmd['abstract']
+                    #all_ds_station.attrs['license'] = metadata['license']
+                    all_ds_station.attrs['license'] = "Freely Distributed"
+                    all_ds_station.attrs['time_coverage_start'] = datasetstart
+                    all_ds_station.attrs['time_coverage_end'] = datasetend
+                    all_ds_station.attrs['creator_name'] = stmd['PrincipalInvestigator'] 
+                    all_ds_station.attrs['creator_email'] = stmd['PrincipalInvestigatorEmail']
+                    all_ds_station.attrs['creator_url'] = stmd['PrincipalInvestigatorOrganisationURL']
+                    all_ds_station.attrs['creator_institution'] = stmd['PrincipalInvestigatorOrganisation']
+                    try:
+                        voc_list = [''.join(['GCMDSK:', x]) for x in voc_list]
+                    except TypeError:
+                        voc_list = 'GCMDSK: '
+                    all_ds_station.attrs['keywords'] = ', '.join(voc_list)
+                    all_ds_station.attrs['keywords_vocabulary'] = 'GCMDSK:GCMD Science Keywords:https://gcmd.earthdata.nasa.gov/kms/concepts/concept_scheme/sciencekeywords'
+                    all_ds_station.attrs['publisher_name'] = 'Norwegian Meteorological Institute / Arctic Data Centre'
+                    all_ds_station.attrs['publisher_email'] = 'adc-support@met.no'
+                    all_ds_station.attrs['publisher_url'] = 'https://adc.met.no/'
+                    all_ds_station.attrs['publisher_institution'] = 'Norwegian Meteorological Institute'
+                    all_ds_station.attrs['Conventions'] = 'ACDD, CF-1.8'
+                    all_ds_station.attrs['date_created'] = metadata['createdAt']
+                    all_ds_station.attrs['history'] = metadata['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
+                    all_ds_station.attrs['wigosId'] = station_dict['wigosId']
+                    all_ds_station.attrs['METNOId'] =  s
+                    all_ds_station.attrs['project'] = stmd['Project']
+                    all_ds_station.attrs['contributor'] = stmd['contributor']
+                    all_ds_station.attrs['source'] = 'The FROST database, MET Norway archive of historical weather and climate data' 
+                    print(all_ds_station.dims)
+                    # Dump to Netcdf
+                    out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
+                    outputfile = os.path.join(out_folder, s+'_'+datasetstart[:10]+'_'+datasetend[:10]+'_time_resolution_'+str(t)+'.nc')
+                    if os.path.exists(out_folder):
+                        pass
+                    else:
+                        os.mkdir(out_folder)
+                    try:
+                        if all_ds_station.data_vars: 
+                            #To pass time to int32, otherwise the netcdf will be written with time in int64
+                            ds_dictio = all_ds_station.to_dict()
+                            alltimes = [x for x in ds_dictio['coords'] if 'time' in x]
+                            for t_c in alltimes:
+                                bad_time = ds_dictio['coords'][t_c]['data']
+                                ds_dictio['coords'][t_c]['data'] = np.array([((ti - datetime.strptime(p[0], '%Y-%m-%d')).total_seconds())//60 for ti in bad_time]).astype('i4')
+                            
+                            all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
+                            all_ds_station = all_ds_station.fillna(myfillvalue)
+                            all_ds_station_period.to_netcdf(outputfile,
+                                             encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
+                            print(all_ds_station.dims)
+                            del all_ds_station
+                            del all_ds_station_period
+                        else:
+                            continue
+                    except TypeError:
+                        continue
 
 
 
