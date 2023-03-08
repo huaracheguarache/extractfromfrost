@@ -24,12 +24,12 @@ from calendar import monthrange, month_name
 
 
 def get_performance_category(chosen_category):
-    preformance_dict = {
+    performance_dict = {
     'A':'A - The sensor type fulfills the requirements from WMO/CIMOs on measurement accuracy, calibration and maintenance.', 
     'B':'B - Rutines for calibration and maintanance are known. Control of the montage exists. The precision of the measurment is lower than the WMO/CIMO requirements.',
     'C': 'C - The sensor type is assumed to fulfill the WMO/CIMO requirements. Missing measurement for control, rutines for calibration, or maintanence.',
     'D': 'D - The sensor type is assumed to fulfill the WMO/CIMO requirements. Some controls show deviations from the WMO/CIMO requirements.'}
-    return preformance_dict.get(chosen_category)
+    return performance_dict.get(chosen_category)
 
 
 def get_keywords_from_json(chosen_category, document_path):
