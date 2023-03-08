@@ -204,7 +204,7 @@ def pull_request(site, request, frostcfg, mylog, s = None, data = False):
         msger = True
     # Check if the request worked, print out any errors
     if not r.ok:
-        mylog.error('Returned status code was %s saying %s', r.status_code)
+        mylog.error('Returned status code was %s saying %s', r.status_code, r.text)
         #print('>>>>',r.text)
         msger = True
      # Check if the request worked, print out any errors
@@ -212,7 +212,7 @@ def pull_request(site, request, frostcfg, mylog, s = None, data = False):
         mylog.error('Information returned indicates that no data is available for this time period for station %s', s)
         msger = True
     if not r.status_code == 200:
-        mylog.error('Returned status code was %s\nmessage:\n%s', r.status_code)
+        mylog.error('Returned status code was %s saying:\n%s', r.status_code, r.text)
         msger = True
     
     if data:
