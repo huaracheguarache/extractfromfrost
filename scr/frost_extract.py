@@ -228,7 +228,7 @@ def get_stations(frostcfg, pars, mylog, st_type='fixed'):
     # Connect and read metadata about the station
     
     if pars.stations is False:
-        mylog.info('Retrieving selected '+st_type+' stations in FROST. %s')
+        mylog.info('Retrieving selected '+st_type+' stations in FROST.')
         stations = frostcfg['stations']       
         myrequest = 'ids='+','.join(stations)
         metadata, msger = pull_request(frostcfg['endpointmeta'], myrequest, frostcfg, mylog)
@@ -378,7 +378,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         metadata, msger = pull_request(frostcfg['endpointmeta'], myrequest_station, frostcfg, log, s=s)
         
         #PERIOD LOOP
-        periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and endnig day
+        periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and ending day
         for p in periods:
             print(p)
             #log.info('Downloading data for period: %p', p)
@@ -397,12 +397,13 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
             mm = ''.join(['Retrieving variables metadata for station: ', s])
             myrequest_vars = 'sources='+s+'&referencetime='+'/'.join(p)
             variables = get_vars(myrequest_vars, frostcfg, log, mm)
+            #print('>>>> ', variables['data'])
             if 'data' in variables.keys():
-                elements = list(set([i['elementId'] for i in variables['data']]))
+                elements = set([i['elementId'] for i in variables['data']])
             else:
                 continue
             
-            #ELEMENTS LOOP
+            # Loop through ELEMENTS (variables) and create list for extraction
             dir_elements_resol = {}
             for e in elements:
                 if simple and any(a in e for a in avoid_var):
@@ -413,14 +414,16 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 max_perf = performances[min([performances.index(pf) for pf in perfs])]
                 var_dict = [x for x in variables['data'] if x['elementId']==e][0]
                 dir_elements_resol[e] = (max_resol, max_perf, var_dict)
+
+            #print(json.dumps(dir_elements_resol, indent=2))
            
             #TIME RESOLUTIONS LOOP
+            # Why two takes on the resols loop? Øystein Godøy, METNO/FOU, 2023-03-08 
             time_dim = {}
             for t in resols:
                 vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
                 if not vars_to_down:
                     continue
-                print(p[0], p[1], freq_dict[t])
                 dates = pd.date_range(p[0], p[1], freq=freq_dict[t])
                 dates = dates.drop(dates[-1])
                 t_name = ''.join(['time_', t])
@@ -450,12 +453,16 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 data, msg_err = pull_request(frostcfg['endpointobs'], 
                              myrequest_data, frostcfg, mylog, s=s, data=True)
                 if msg_err:
+                    log.warn('Error experienced downloading data %s', msg_err)
                     continue
 
                 # Read into Pandas DataFrame
                 df = pd.read_csv(StringIO(data.text),header=0,
                     mangle_dupe_cols=True, parse_dates=False,
                     index_col=False,na_values=['-'])
+                fp = open('myfile.txt', 'w')
+                fp.write(df.to_string())
+                fp.close()
                 
                 #Parsing time
                 timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
@@ -503,6 +510,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 #SOME CLEANNING
                 df = df.set_index(t_name)
                 cols = df.columns
+                # Not sure what is done below? Øystein Godøy, METNO/FOU, 2023-03-08 
                 for c in cols:
                     if c.find('(') > 0 and c.find('(')==c.rfind('('):
                         df.rename(columns={c:c[:c.find('(')]}, inplace=True)
@@ -511,8 +519,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     if c.find("\\") > 0:
                         df.rename(columns={c:c[:c.find("\\")]}, inplace=True)
                     
-                included =[]
-                excluded =[]
+                included = []
+                excluded = []
                 for el in vars_to_down:
                     for c in cols:
                         if el == 'None':
@@ -524,6 +532,11 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             excluded.append(el)
                 if not included:
                     continue
+                for inc in included:
+                    try:
+                        df[inc]
+                    except KeyError:
+                        included.remove(inc)
                 df = df[included].copy()                
                 if excluded:
                     for ex in excluded:
