@@ -380,7 +380,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         #PERIOD LOOP
         periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and ending day
         for p in periods:
-            print(p)
             #log.info('Downloading data for period: %p', p)
             # Check that the station has data in the period requested.
             # Sometimes this will fail anyway since there is no data due to technical issues and the station is still considered active.
@@ -440,10 +439,10 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
 
                 if not 'all_ds_station' in locals():
                     all_ds_station = xr.Dataset(coords={t_name:time_dim[t_name]})
-                    print(all_ds_station.dims)
+                    #print('>>>> ', all_ds_station.dims)
             
                 # Create request for observations
-                log.info('Retrieving data for station: %s', s)
+                log.info('Retrieving data for station: %s, time resolution: %s', s, t)
                 myrequest_data = ('sources='+s+'&elements='
                     +', '.join(vars_to_down)
                     +'&fields='+','.join(frostcfg['fields'])
@@ -453,7 +452,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 data, msg_err = pull_request(frostcfg['endpointobs'], 
                              myrequest_data, frostcfg, mylog, s=s, data=True)
                 if msg_err:
-                    log.warn('Error experienced downloading data %s', msg_err)
+                    log.warning('Error experienced downloading data %s', msg_err)
                     continue
 
                 # Read into Pandas DataFrame
@@ -464,13 +463,14 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 fp.write(df.to_string())
                 fp.close()
                 
-                #Parsing time
+                # Parsing time
                 timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
                 datasetstart = min(timos).strftime('%Y-%m-%dT%H:%M:%SZ')
                 datasetend = max(timos).strftime('%Y-%m-%dT%H:%M:%SZ')
                 df.loc[:,t_name] = timos
                 df.drop(['referenceTime'], axis=1, inplace=True)
     
+                # Check if column names has to be modified before this block
                 if est=='permafrost':
                     perma = 'soil_temperature'
                     cols = df.columns
@@ -507,11 +507,11 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     if perma in vars_to_down:
                         vars_to_down.remove(perma)
                 
-                #SOME CLEANNING
+                # SOME CLEANNING
                 df = df.set_index(t_name)
-                cols = df.columns
-                # Not sure what is done below? Øystein Godøy, METNO/FOU, 2023-03-08 
-                for c in cols:
+                # Not sure what is done below? Could be removed?
+                # Øystein Godøy, METNO/FOU, 2023-03-08 
+                for c in df.keys():
                     if c.find('(') > 0 and c.find('(')==c.rfind('('):
                         df.rename(columns={c:c[:c.find('(')]}, inplace=True)
                     elif c.find('(') > 0 and c.find('(') < c.rfind('('):
@@ -519,17 +519,17 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     if c.find("\\") > 0:
                         df.rename(columns={c:c[:c.find("\\")]}, inplace=True)
                     
-                included = []
-                excluded = []
+                included = set()
+                excluded = set()
+                # Not entirely sure on the use case for the code below
+                # Double check...
+                # Øystein Godøy, METNO/FOU, 2023-03-10 
+                cols = df.keys()
                 for el in vars_to_down:
-                    for c in cols:
-                        if el == 'None':
-                            excluded.append(el)
-                        if el in c:
-                            included.append(el)
-                            break
-                        else:
-                            excluded.append(el)
+                    if el in cols:
+                        included.add(el)
+                    else:
+                        excluded.add(el)
                 if not included:
                     continue
                 for inc in included:
@@ -615,7 +615,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         #ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
                         voc_list.append(get_keywords_from_json(vname, output['json_path']))
                         check_list.append(''.join(['GCMDSK:', vname]))
-                print(ds_station.dims)
+                #print('Here I am...')
+                #print(ds_station.dims)
                 '''
                 #Aggregate datasets with same dimension, but different dimension length
                 if not 'all_ds_station' in locals():
@@ -666,6 +667,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         all_ds_station.attrs['featureType'] = 'timeSeries'
                     
                     all_ds_station.attrs['summary'] = stmd['abstract']
+                    # FIXME need to be CC-BY-4.0... using SPDX...
                     #all_ds_station.attrs['license'] = metadata['license']
                     all_ds_station.attrs['license'] = "Freely Distributed"
                     all_ds_station.attrs['time_coverage_start'] = datasetstart
@@ -692,7 +694,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     all_ds_station.attrs['project'] = stmd['Project']
                     all_ds_station.attrs['contributor'] = stmd['contributor']
                     all_ds_station.attrs['source'] = 'The FROST database, MET Norway archive of historical weather and climate data' 
-                    print(all_ds_station.dims)
+                    #print(all_ds_station.dims)
                     # Dump to Netcdf
                     out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
                     outputfile = os.path.join(out_folder, s+'_'+datasetstart[:10]+'_'+datasetend[:10]+'_time_resolution_'+str(t)+'.nc')
@@ -713,7 +715,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             all_ds_station = all_ds_station.fillna(myfillvalue)
                             all_ds_station_period.to_netcdf(outputfile,
                                              encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
-                            print(all_ds_station.dims)
+                            print('>>>> ', all_ds_station.dims)
                             del all_ds_station
                             del all_ds_station_period
                         else:
