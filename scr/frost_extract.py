@@ -126,7 +126,7 @@ def parse_arguments():
     parser.add_argument("-u","--upt",dest="update",
             help="To update data", required=False, action='store_true')
     parser.add_argument("-a","--all",dest="stations",
-            help="To download/update data from all stations", required=False, action='store_true')
+            help="To download/update data from all stations (not sure this works)", required=False, action='store_true')
     parser.add_argument("-t","--type",dest="type_station",
             help="To select the type of stations; fixed, permafrost, or moving", required=False)
     args = parser.parse_args()
@@ -299,15 +299,21 @@ def get_periods(pars, metadata, direc, backwards=None):
                 
     return periods
 
+"""
+Fix this so it actually reflects the requetsed time period. It doesn't now.
+Assuming the need for this is to segment data into monthly files.
+A preliminary fix has been added temporarily, but still not fully good.
+"""
 def gen_periods(from_day, to_day):
     
-    
+    print(from_day.year)
+    print(to_day.year)
     for j in range(from_day.year, to_day.year+1):
         aa = list(month_name).index('January')
         zz = len(month_name)
         if j == from_day.year:
             aa = from_day.month   
-        elif j == to_day.year:
+        if j == to_day.year:
             zz = to_day.month+1
         else:
             pass
@@ -361,6 +367,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
     # Get a list with all stations and some metadata
     
     sts, sts_dicts = get_stations(frostcfg, pars, log, st_type = est)
+    print(sts)
+    print(sts_dicts)
+    #sys.exit()
     
     #STATIONS LOOP
     for s in sts:
