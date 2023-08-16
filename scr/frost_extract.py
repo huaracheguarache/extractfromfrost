@@ -367,8 +367,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
     # Get a list with all stations and some metadata
     
     sts, sts_dicts = get_stations(frostcfg, pars, log, st_type = est)
-    print(sts)
-    print(sts_dicts)
+    #print(pars)
+    #print(sts)
+    #print(sts_dicts)
     #sys.exit()
     
     #STATIONS LOOP
@@ -466,7 +467,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
 
                 # Read into Pandas DataFrame
                 df = pd.read_csv(StringIO(data.text),header=0,
-                    mangle_dupe_cols=True, parse_dates=False,
+                    parse_dates=False,
                     index_col=False,na_values=['-'])
                 fp = open('myfile.txt', 'w')
                 fp.write(df.to_string())
@@ -528,17 +529,17 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     if c.find("\\") > 0:
                         df.rename(columns={c:c[:c.find("\\")]}, inplace=True)
                     
-                included = set()
-                excluded = set()
+                included = list()
+                excluded = list()
                 # Not entirely sure on the use case for the code below
                 # Double check...
                 # Øystein Godøy, METNO/FOU, 2023-03-10 
                 cols = df.keys()
                 for el in vars_to_down:
                     if el in cols:
-                        included.add(el)
+                        included.append(el)
                     else:
-                        excluded.add(el)
+                        excluded.append(el)
                 if not included:
                     continue
                 for inc in included:
@@ -724,7 +725,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             all_ds_station = all_ds_station.fillna(myfillvalue)
                             all_ds_station_period.to_netcdf(outputfile,
                                              encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
-                            print('>>>> ', all_ds_station.dims)
+                            #print('>>>> ', all_ds_station.dims)
                             del all_ds_station
                             del all_ds_station_period
                         else:
