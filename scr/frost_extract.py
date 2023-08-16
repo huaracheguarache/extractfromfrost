@@ -395,11 +395,11 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
             # Sometimes this will fail anyway since there is no data due to technical issues and the station is still considered active.
             if 'validTo' in metadata['data'][0].keys():
                 if datetime.strptime(p[0],'%Y-%m-%d') > datetime.strptime(metadata['data'][0]['validTo'],'%Y-%m-%dT%H:%M:%S.%fZ'): 
-                    log.warn('Station %s doesn\'t contain data as late as this.', s)
+                    log.warning('Station %s doesn\'t contain data as late as this.', s)
                     return
             if 'validFrom' in metadata['data'][0].keys():
                 if datetime.strptime(p[1],'%Y-%m-%d') < datetime.strptime(metadata['data'][0]['validFrom'],'%Y-%m-%dT%H:%M:%S.%fZ'):
-                    log.warn('Station %s doesn\'t contain data as early as this.', s)
+                    log.warning('Station %s doesn\'t contain data as early as this.', s)
                     return
         
             # Get a list of elements & Connect and read metadata about the variables
