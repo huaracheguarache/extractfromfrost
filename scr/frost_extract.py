@@ -258,6 +258,9 @@ def get_vars(request, frostcfg, mylog, msg):
     return metadata
 
 
+"""
+Not sure on this but believe it is listing periods with asctual data.
+"""
 def get_periods(pars, metadata, direc, backwards=None):
     
     periods = []
@@ -300,7 +303,7 @@ def get_periods(pars, metadata, direc, backwards=None):
     return periods
 
 """
-Fix this so it actually reflects the requetsed time period. It doesn't now.
+Fix this so it actually reflects the requested time period. It doesn't now.
 Assuming the need for this is to segment data into monthly files.
 A preliminary fix has been added temporarily, but still not fully good.
 """
@@ -367,10 +370,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
     # Get a list with all stations and some metadata
     
     sts, sts_dicts = get_stations(frostcfg, pars, log, st_type = est)
-    #print(pars)
-    #print(sts)
-    #print(sts_dicts)
-    #sys.exit()
     
     #STATIONS LOOP
     for s in sts:
@@ -390,7 +389,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         #PERIOD LOOP
         periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and ending day
         for p in periods:
-            #log.info('Downloading data for period: %p', p)
+            log.info('Downloading data for period: %s', p)
             # Check that the station has data in the period requested.
             # Sometimes this will fail anyway since there is no data due to technical issues and the station is still considered active.
             if 'validTo' in metadata['data'][0].keys():
@@ -406,11 +405,14 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
             mm = ''.join(['Retrieving variables metadata for station: ', s])
             myrequest_vars = 'sources='+s+'&referencetime='+'/'.join(p)
             variables = get_vars(myrequest_vars, frostcfg, log, mm)
-            #print('>>>> ', variables['data'])
+            #print('>>>> ', json.dumps(variables['data'], indent=2))
+            #sys.exit()
             if 'data' in variables.keys():
                 elements = set([i['elementId'] for i in variables['data']])
             else:
                 continue
+            #print('>>> ', elements)
+            #sys.exit()
             
             # Loop through ELEMENTS (variables) and create list for extraction
             dir_elements_resol = {}
@@ -424,7 +426,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 var_dict = [x for x in variables['data'] if x['elementId']==e][0]
                 dir_elements_resol[e] = (max_resol, max_perf, var_dict)
 
-            #print(json.dumps(dir_elements_resol, indent=2))
+            print(json.dumps(dir_elements_resol, indent=2))
+            print('>>>> ', times)
            
             #TIME RESOLUTIONS LOOP
             # Why two takes on the resols loop? Øystein Godøy, METNO/FOU, 2023-03-08 
@@ -438,7 +441,12 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 t_name = ''.join(['time_', t])
                 time_dim[t_name] = ([t_name], dates)
                
+            #print('>>> ', dir_elements_resol['air_temperature'])
             for t in resols:
+                if t != frostcfg['frequency']:
+                    print('The observation frequency found is not requested, skipping...')
+                    continue
+                print('Extracting information for frequency ', t)
                 
                 vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
                 if est=='permafrost' and not 'soil_temperature' in vars_to_down:
@@ -452,7 +460,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     #print('>>>> ', all_ds_station.dims)
             
                 # Create request for observations
-                log.info('Retrieving data for station: %s, time resolution: %s', s, t)
+                log.info('Retrieving data for station: %s, time resolution: %s and period: %s/%s', s, t, p[0],p[1])
+                log.info('Variables: %s', vars_to_down)
                 myrequest_data = ('sources='+s+'&elements='
                     +', '.join(vars_to_down)
                     +'&fields='+','.join(frostcfg['fields'])
@@ -472,6 +481,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 fp = open('myfile.txt', 'w')
                 fp.write(df.to_string())
                 fp.close()
+                print(df)
                 
                 # Parsing time
                 timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
@@ -595,7 +605,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                                 continue
                     del da_profile
                 
-                print(ds_station.dims)
+                #print(ds_station.dims)
                 # Specify variable attributes
                 ds_station[t_name].attrs['standard_name'] = 'time'
                 ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
@@ -639,6 +649,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 '''
 
                 for v in list(ds_station.variables):
+                    print('>>>> ', v)
                     if est=='permafrost' and v != perma:
                         continue
                     if 'time' in v:
@@ -650,6 +661,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     continue
                 else:
                     pass
+
                  
                 if 'all_ds_station' in  locals():
                     # Add global attributes
@@ -722,9 +734,11 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                                 ds_dictio['coords'][t_c]['data'] = np.array([((ti - datetime.strptime(p[0], '%Y-%m-%d')).total_seconds())//60 for ti in bad_time]).astype('i4')
                             
                             all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
+                            print('=========')
+                            print(all_ds_station.data_vars,'\n')
+                            print(all_ds_station_period.data_vars)
                             all_ds_station = all_ds_station.fillna(myfillvalue)
-                            all_ds_station_period.to_netcdf(outputfile,
-                                             encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
+                            all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
                             #print('>>>> ', all_ds_station.dims)
                             del all_ds_station
                             del all_ds_station_period
