@@ -387,7 +387,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         metadata, msger = pull_request(frostcfg['endpointmeta'], myrequest_station, frostcfg, log, s=s)
         print(json.dumps(metadata, indent=4))
         print(metadata['data'][0]['name'])
-        sys.exit()
         
         #PERIOD LOOP
         periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and ending day
@@ -684,14 +683,14 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         all_ds_station.attrs['title'] = 'Permafrost station '+s
                         all_ds_station.attrs['featureType'] = 'timeSeriesProfile'
                     else:
-                        all_ds_station.attrs['title'] = 'Weather station '+s
+                        all_ds_station.attrs['title'] = f"Weather station {metadata['data'][0]['name']} ({s})" 
                         all_ds_station.attrs['geospatial_lat_min'] = station_dict['geometry']['coordinates'][1]
                         all_ds_station.attrs['geospatial_lat_max'] = station_dict['geometry']['coordinates'][1]
                         all_ds_station.attrs['geospatial_lon_min'] = station_dict['geometry']['coordinates'][0]
                         all_ds_station.attrs['geospatial_lon_max'] = station_dict['geometry']['coordinates'][0]
                         all_ds_station.attrs['featureType'] = 'timeSeries'
                     
-                    all_ds_station.attrs['summary'] = stmd['abstract']
+                    all_ds_station.attrs['summary'] = f"Information from the station {metadata['data'][0]['name']} with MET station number {s}. "+stmd['abstract']
                     # FIXME need to be CC-BY-4.0... using SPDX...
                     #all_ds_station.attrs['license'] = metadata['license']
                     all_ds_station.attrs['license'] = "Freely Distributed"
@@ -717,8 +716,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     all_ds_station.attrs['wigosId'] = station_dict['wigosId']
                     all_ds_station.attrs['METNOId'] =  s
                     all_ds_station.attrs['project'] = stmd['Project']
-                    all_ds_station.attrs['contributor'] = stmd['contributor']
-                    all_ds_station.attrs['source'] = 'The FROST database, MET Norway archive of historical weather and climate data' 
+                    all_ds_station.attrs['contributor'] = str(stmd['contributor'])
+                    all_ds_station.attrs['source'] = 'Norwegian Meteorological Institute archive of historical weather and climate data' 
                     #print(all_ds_station.dims)
                     # Dump to Netcdf
                     out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
