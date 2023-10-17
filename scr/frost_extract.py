@@ -385,6 +385,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         log.info('Retrieving station metadata for station: %s', s)
         myrequest_station = 'ids='+s
         metadata, msger = pull_request(frostcfg['endpointmeta'], myrequest_station, frostcfg, log, s=s)
+        print(json.dumps(metadata, indent=4))
+        print(metadata['data'][0]['name'])
+        sys.exit()
         
         #PERIOD LOOP
         periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and ending day
