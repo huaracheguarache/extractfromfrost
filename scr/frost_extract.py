@@ -19,7 +19,7 @@ import json
 import yaml
 import logging
 import logging.handlers
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from calendar import monthrange, month_name
 
 
@@ -327,6 +327,7 @@ def gen_periods(from_day, to_day):
             yield (starting_point, false_end)
             
 
+# This doesn't woprk entirely as expected, time is not handled...
 def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 1970-01-01 00:00:00'):
     
     all_encode = {}
@@ -674,12 +675,10 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                                 continue
                     del da_profile
                 
-                #print(ds_station.dims)
-                # Specify variable attributes
+                # Specify variable attributes, time is converted further down
                 ds_station[t_name].attrs['standard_name'] = 'time'
                 ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
-                ds_station[t_name].attrs['units'] = 'minutes since '+p[0]+' 00:00:00'
-                #ds_station[t_name].encoding['units'] = 'seconds since 1970-01-01T00:00:00+0'
+                ds_station[t_name].attrs['units'] = 'seconds since 1970-01-01T00:00:00+0'
                 check_list = []
                 for vname in list(ds_station.data_vars):
                     if vname in check_list:
@@ -700,8 +699,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         #ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
                         voc_list.append(get_keywords_from_json(vname, output['json_path']))
                         check_list.append(''.join(['GCMDSK:', vname]))
-                #print('Here I am...')
-                #print(ds_station.dims)
                 '''
                 #Aggregate datasets with same dimension, but different dimension length
                 if not 'all_ds_station' in locals():
@@ -714,13 +711,13 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 '''
 
                 for v in list(ds_station.variables):
-                    #print('>>>> ', v)
                     if est=='permafrost' and v != perma:
                         continue
                     if 'time' in v:
                         continue
                     all_ds_station[v] = ds_station[v]
                 del ds_station
+                #print(all_ds_station['time_PT1H'])
                 
                 if msger:
                     continue
@@ -759,19 +756,22 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             alltimes = [x for x in ds_dictio['coords'] if 'time' in x]
                             for t_c in alltimes:
                                 bad_time = ds_dictio['coords'][t_c]['data']
-                                ds_dictio['coords'][t_c]['data'] = np.array([((ti - datetime.strptime(p[0], '%Y-%m-%d')).total_seconds())//60 for ti in bad_time]).astype('i4')
+                                #ds_dictio['coords'][t_c]['data'] = np.array([((ti - datetime.strptime(p[0], '%Y-%m-%d')).total_seconds())//60 for ti in bad_time]).astype('i4')
+                                ds_dictio['coords'][t_c]['data'] = np.array([ti.replace(tzinfo=timezone.utc).timestamp() for ti in bad_time]).astype('i4')
                             
                             all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
                             # Add global attributes
                             all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
                             # Set missing values
                             #print(all_ds_station_period)
+                            """
                             print(all_ds_station_period['time_PT1H'])
                             sys.exit()
+                            """
                             all_ds_station = all_ds_station.fillna(myfillvalue)
                             # Dump data
                             #all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
-                            all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period))
+                            all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_name=alltimes[0]))
                             del all_ds_station
                             del all_ds_station_period
                         else:
