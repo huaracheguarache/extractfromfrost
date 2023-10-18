@@ -331,7 +331,6 @@ def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 19
     
     all_encode = {}
         
-    print(ds.keys())
     for v in list(ds.keys()):
         if v == time_name:
             dtip = 'i4'
@@ -680,7 +679,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 ds_station[t_name].attrs['standard_name'] = 'time'
                 ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
                 ds_station[t_name].attrs['units'] = 'minutes since '+p[0]+' 00:00:00'
-                #ds_station['time'].encoding['units'] = 'minutes since '+p[0]+' 00:00:00'
+                #ds_station[t_name].encoding['units'] = 'seconds since 1970-01-01T00:00:00+0'
                 check_list = []
                 for vname in list(ds_station.data_vars):
                     if vname in check_list:
@@ -765,10 +764,14 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
                             # Add global attributes
                             all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
+                            # Set missing values
                             #print(all_ds_station_period)
+                            print(all_ds_station_period['time_PT1H'])
+                            sys.exit()
                             all_ds_station = all_ds_station.fillna(myfillvalue)
+                            # Dump data
                             #all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
-                            all_ds_station_period.to_netcdf(outputfile)
+                            all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period))
                             del all_ds_station
                             del all_ds_station_period
                         else:
