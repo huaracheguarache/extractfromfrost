@@ -350,35 +350,68 @@ def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 19
         
     return all_encode
 
-def add_global_attrs(ds, dsmd, stmd, dyninfo):
+def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, bbox=None):
 
-    print(json.dumps(stmd, indent=4))
+    #print(json.dumps(stmd, indent=4))
+    # Title and summary
+    if sttype == "permafrost":
+        ds.attrs['title'] = np.array(f"Permafrost station {stmd['data'][0]['name']} ({stmd['data'][0]['id']})".encode("utf-8")) 
+        ds.attrs['featureType'] = 'timeSeriesProfile'
+    elif sttype == "moving":
+        # This is yet not tested and need more development...
+        ds.attrs['title'] = np.array(f"Weather station  from ship {stmd['data'][0]['name']} ({stmd['data'][0]['id']})".encode("utf-8")) 
+        ds.attrs['featureType'] = 'Trajectory'
+    else:
+        ds.attrs['title'] = np.array(f"Weather station {stmd['data'][0]['name']} ({stmd['data'][0]['id']})".encode("utf-8")) 
+        ds.attrs['featureType'] = 'timeSeries'
     ds.attrs['summary'] = np.array(f"Information from the station {stmd['data'][0]['name']} with MET station number {stmd['data'][0]['id']}.  {dsmd['abstract']}".encode("utf-8"))
+
+    # License (TODO, not complete)
     ds.attrs['license'] = stmd['license']
-    ds.attrs['license'] = "Freely Distributed"
+
+    # Spatiotemporal information
     ds.attrs['time_coverage_start'] = dyninfo['datasetstart']
     ds.attrs['time_coverage_end'] = dyninfo['datasetend']
+    if sttype == "moving" and bbox != None:
+        ds.attrs['geospatial_lat_min'] = bbox['lat_min']
+        ds.attrs['geospatial_lat_max'] = bbox['lat_max']
+        ds.attrs['geospatial_lon_min'] = bbox['lon_min']
+        ds.attrs['geospatial_lon_max'] = bbox['lon_max']
+    else:
+        ds.attrs['geospatial_lat_min'] = stmd['data'][0]['geometry']['coordinates'][1]
+        ds.attrs['geospatial_lat_max'] = stmd['data'][0]['geometry']['coordinates'][1]
+        ds.attrs['geospatial_lon_min'] = stmd['data'][0]['geometry']['coordinates'][0]
+        ds.attrs['geospatial_lon_max'] = stmd['data'][0]['geometry']['coordinates'][0]
+
+    # People and institutions contributing (TODO, not complete)
     ds.attrs['creator_name'] = dsmd['PrincipalInvestigator'] 
     ds.attrs['creator_email'] = dsmd['PrincipalInvestigatorEmail']
     ds.attrs['creator_url'] = dsmd['PrincipalInvestigatorOrganisationURL']
     ds.attrs['creator_institution'] = dsmd['PrincipalInvestigatorOrganisation']
+    ds.attrs["contributor"] = np.array(dsmd['contributor'].encode("utf-8"))
 
+    # Data center information
     ds.attrs['publisher_name'] = 'Norwegian Meteorological Institute / Arctic Data Centre'
     ds.attrs['publisher_email'] = 'adc-support@met.no'
     ds.attrs['publisher_url'] = 'https://adc.met.no/'
     ds.attrs['publisher_institution'] = 'Norwegian Meteorological Institute'
+
+    # Conventions specification
     ds.attrs['Conventions'] = 'ACDD, CF-1.8'
+
+    # Provenance information
     ds.attrs['date_created'] = stmd['createdAt']
     ds.attrs['history'] = stmd['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
+    ds.attrs['source'] = 'Norwegian Meteorological Institute archive of historical weather and climate data' 
+
+    # Identifiers
     ds.attrs['wigosId'] = stmd['data'][0]['wigosId']
-    ds.attrs['METNOId'] =  stmd['data'][0]['id']
+    ds.attrs['MET_Identifier'] =  stmd['data'][0]['id']
+
+    # Project linkages
     ds.attrs['project'] = dsmd['Project']
 
-    ds.attrs['source'] = 'Norwegian Meteorological Institute archive of historical weather and climate data' 
-    ds.attrs["contributor"] = np.array(dsmd['contributor'].encode("utf-8"))
-
     return(ds)
-    
 
 def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
     
@@ -401,7 +434,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
     
     sts, sts_dicts = get_stations(frostcfg, pars, log, st_type = est)
     
-    #STATIONS LOOP
+    # STATIONS LOOP
     for s in sts:
         
         if os.path.exists(os.path.join(output['destdir'], s)):
@@ -695,30 +728,24 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 else:
                     pass
 
+                """
+                print(all_ds_station)
+                sys.exit()
+                """
                 if 'all_ds_station' in  locals():
                     # Add global attributes
     
+                    # Generate BBOX for moving stations
                     if est == 'moving' and 'latitude' in all_ds_station.data_vars:
-                        all_ds_station.attrs['title'] = 'Weather station information from ship '+s
                         lats = np.array(all_ds_station.data_vars['latitude'].values).flatten().astype('float')
                         lons = np.array(all_ds_station.data_vars['longitude'].values).flatten().astype('float')
-                        all_ds_station.attrs['geospatial_lat_min'] = np.nanmin(lats)
-                        all_ds_station.attrs['geospatial_lat_max'] = np.nanmax(lats)
-                        all_ds_station.attrs['geospatial_lon_min'] = np.nanmin(lons)
-                        all_ds_station.attrs['geospatial_lon_max'] = np.nanmax(lons)
-                    elif est == 'moving':
-                        all_ds_station.attrs['title'] = 'Weather station information from ship '+s
-                        all_ds_station.attrs['featureType'] = 'Trajectory'
-                    elif est=='permafrost':
-                        all_ds_station.attrs['title'] = 'Permafrost station '+s
-                        all_ds_station.attrs['featureType'] = 'timeSeriesProfile'
+                        bbox = list()
+                        bbox['lat_min'] = np.nanmin(lats)
+                        bbox['lat_max'] = np.nanmax(lats)
+                        bbox['lon_min'] = np.nanmin(lons)
+                        bbox['lon_max'] = np.nanmax(lons)
                     else:
-                        all_ds_station.attrs['title'] = f"Weather station {metadata['data'][0]['name']} ({s})" 
-                        all_ds_station.attrs['geospatial_lat_min'] = station_dict['geometry']['coordinates'][1]
-                        all_ds_station.attrs['geospatial_lat_max'] = station_dict['geometry']['coordinates'][1]
-                        all_ds_station.attrs['geospatial_lon_min'] = station_dict['geometry']['coordinates'][0]
-                        all_ds_station.attrs['geospatial_lon_max'] = station_dict['geometry']['coordinates'][0]
-                        all_ds_station.attrs['featureType'] = 'timeSeries'
+                        bbox = None
                     
                     try:
                         voc_list = [''.join(['GCMDSK:', x]) for x in voc_list]
@@ -745,7 +772,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             
                             all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
                             # Add global attributes
-                            all_ds_station_period = add_global_attrs(all_ds_station_period, stmd, metadata, {'datasetstart': datasetstart,'datasetend': datasetend})
+                            all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, {'datasetstart': datasetstart,'datasetend': datasetend}, bbox)
                             print(all_ds_station_period)
                             all_ds_station = all_ds_station.fillna(myfillvalue)
                             #all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
