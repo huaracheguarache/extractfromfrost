@@ -331,6 +331,7 @@ def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 19
     
     all_encode = {}
         
+    print(ds.keys())
     for v in list(ds.keys()):
         if v == time_name:
             dtip = 'i4'
@@ -348,6 +349,35 @@ def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 19
         all_encode[v] = encode
         
     return all_encode
+
+def add_global_attrs(ds, dsmd, stmd, dyninfo):
+
+    print(json.dumps(stmd, indent=4))
+    ds.attrs['summary'] = np.array(f"Information from the station {stmd['data'][0]['name']} with MET station number {stmd['data'][0]['id']}.  {dsmd['abstract']}".encode("utf-8"))
+    ds.attrs['license'] = stmd['license']
+    ds.attrs['license'] = "Freely Distributed"
+    ds.attrs['time_coverage_start'] = dyninfo['datasetstart']
+    ds.attrs['time_coverage_end'] = dyninfo['datasetend']
+    ds.attrs['creator_name'] = dsmd['PrincipalInvestigator'] 
+    ds.attrs['creator_email'] = dsmd['PrincipalInvestigatorEmail']
+    ds.attrs['creator_url'] = dsmd['PrincipalInvestigatorOrganisationURL']
+    ds.attrs['creator_institution'] = dsmd['PrincipalInvestigatorOrganisation']
+
+    ds.attrs['publisher_name'] = 'Norwegian Meteorological Institute / Arctic Data Centre'
+    ds.attrs['publisher_email'] = 'adc-support@met.no'
+    ds.attrs['publisher_url'] = 'https://adc.met.no/'
+    ds.attrs['publisher_institution'] = 'Norwegian Meteorological Institute'
+    ds.attrs['Conventions'] = 'ACDD, CF-1.8'
+    ds.attrs['date_created'] = stmd['createdAt']
+    ds.attrs['history'] = stmd['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
+    ds.attrs['wigosId'] = stmd['data'][0]['wigosId']
+    ds.attrs['METNOId'] =  stmd['data'][0]['id']
+    ds.attrs['project'] = dsmd['Project']
+
+    ds.attrs['source'] = 'Norwegian Meteorological Institute archive of historical weather and climate data' 
+    ds.attrs["contributor"] = np.array(dsmd['contributor'].encode("utf-8"))
+
+    return(ds)
     
 
 def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
@@ -382,11 +412,12 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         station_dict = [x for x in sts_dicts if x['id']==s][0]
         
         # Connect and read metadata about the station
+        log.info("New station\n==========")
         log.info('Retrieving station metadata for station: %s', s)
         myrequest_station = 'ids='+s
         metadata, msger = pull_request(frostcfg['endpointmeta'], myrequest_station, frostcfg, log, s=s)
-        print(json.dumps(metadata, indent=4))
-        print(metadata['data'][0]['name'])
+        #print(json.dumps(metadata, indent=4))
+        #print(metadata['data'][0]['name'])
         
         #PERIOD LOOP
         periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and ending day
@@ -428,8 +459,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 var_dict = [x for x in variables['data'] if x['elementId']==e][0]
                 dir_elements_resol[e] = (max_resol, max_perf, var_dict)
 
-            print(json.dumps(dir_elements_resol, indent=2))
-            print('>>>> ', times)
+            #print(json.dumps(dir_elements_resol, indent=2))
+            #print('>>>> ', times)
            
             #TIME RESOLUTIONS LOOP
             # Why two takes on the resols loop? Øystein Godøy, METNO/FOU, 2023-03-08 
@@ -483,7 +514,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 fp = open('myfile.txt', 'w')
                 fp.write(df.to_string())
                 fp.close()
-                print(df)
+                #print(df)
                 
                 # Parsing time
                 timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
@@ -579,7 +610,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 if est=='permafrost' and 'da_profile' in locals():
                     
                     #To include only the soil temperature
-                    print(ds_station.dims)
+                    #print(ds_station.dims)
                     ds_station = ds_station.drop([v for v in ds_station.data_vars])
                     
                     ds_station = ds_station.assign_coords(depth=da_profile.depth.values)
@@ -596,7 +627,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     voc_list.append(get_keywords_from_json(perma, output['json_path']))
                     var_dims = [item for v in ds_station.data_vars for item in ds_station[v].dims]
                     for dd in list(ds_station.dims):
-                        print(dd)
+                        #print(dd)
                         if not dd in var_dims:
                             #print(ds_station.dims)
                             ds_station = ds_station.drop_dims(dd)
@@ -651,7 +682,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 '''
 
                 for v in list(ds_station.variables):
-                    print('>>>> ', v)
+                    #print('>>>> ', v)
                     if est=='permafrost' and v != perma:
                         continue
                     if 'time' in v:
@@ -664,7 +695,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 else:
                     pass
 
-                 
                 if 'all_ds_station' in  locals():
                     # Add global attributes
     
@@ -690,34 +720,12 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         all_ds_station.attrs['geospatial_lon_max'] = station_dict['geometry']['coordinates'][0]
                         all_ds_station.attrs['featureType'] = 'timeSeries'
                     
-                    all_ds_station.attrs['summary'] = f"Information from the station {metadata['data'][0]['name']} with MET station number {s}. "+stmd['abstract']
-                    # FIXME need to be CC-BY-4.0... using SPDX...
-                    #all_ds_station.attrs['license'] = metadata['license']
-                    all_ds_station.attrs['license'] = "Freely Distributed"
-                    all_ds_station.attrs['time_coverage_start'] = datasetstart
-                    all_ds_station.attrs['time_coverage_end'] = datasetend
-                    all_ds_station.attrs['creator_name'] = stmd['PrincipalInvestigator'] 
-                    all_ds_station.attrs['creator_email'] = stmd['PrincipalInvestigatorEmail']
-                    all_ds_station.attrs['creator_url'] = stmd['PrincipalInvestigatorOrganisationURL']
-                    all_ds_station.attrs['creator_institution'] = stmd['PrincipalInvestigatorOrganisation']
                     try:
                         voc_list = [''.join(['GCMDSK:', x]) for x in voc_list]
                     except TypeError:
                         voc_list = 'GCMDSK: '
                     all_ds_station.attrs['keywords'] = ', '.join(voc_list)
                     all_ds_station.attrs['keywords_vocabulary'] = 'GCMDSK:GCMD Science Keywords:https://gcmd.earthdata.nasa.gov/kms/concepts/concept_scheme/sciencekeywords'
-                    all_ds_station.attrs['publisher_name'] = 'Norwegian Meteorological Institute / Arctic Data Centre'
-                    all_ds_station.attrs['publisher_email'] = 'adc-support@met.no'
-                    all_ds_station.attrs['publisher_url'] = 'https://adc.met.no/'
-                    all_ds_station.attrs['publisher_institution'] = 'Norwegian Meteorological Institute'
-                    all_ds_station.attrs['Conventions'] = 'ACDD, CF-1.8'
-                    all_ds_station.attrs['date_created'] = metadata['createdAt']
-                    all_ds_station.attrs['history'] = metadata['createdAt']+': Data extracted from the MET Observation Database through Frost and stored as NetCDF-CF'
-                    all_ds_station.attrs['wigosId'] = station_dict['wigosId']
-                    all_ds_station.attrs['METNOId'] =  s
-                    all_ds_station.attrs['project'] = stmd['Project']
-                    all_ds_station.attrs['contributor'] = str(stmd['contributor'])
-                    all_ds_station.attrs['source'] = 'Norwegian Meteorological Institute archive of historical weather and climate data' 
                     #print(all_ds_station.dims)
                     # Dump to Netcdf
                     out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
@@ -736,17 +744,20 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                                 ds_dictio['coords'][t_c]['data'] = np.array([((ti - datetime.strptime(p[0], '%Y-%m-%d')).total_seconds())//60 for ti in bad_time]).astype('i4')
                             
                             all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
-                            print('=========')
-                            print(all_ds_station.data_vars,'\n')
-                            print(all_ds_station_period.data_vars)
+                            # Add global attributes
+                            all_ds_station_period = add_global_attrs(all_ds_station_period, stmd, metadata, {'datasetstart': datasetstart,'datasetend': datasetend})
+                            print(all_ds_station_period)
                             all_ds_station = all_ds_station.fillna(myfillvalue)
-                            all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
-                            #print('>>>> ', all_ds_station.dims)
+                            #all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
+                            all_ds_station_period.to_netcdf(outputfile)
                             del all_ds_station
                             del all_ds_station_period
                         else:
                             continue
-                    except TypeError:
+                    #except TypeError:
+                    except Exception as e:
+                        log.error("Someting went wrong dumping data to file: %s", e)
+                        sys.exit()
                         continue
 
 
