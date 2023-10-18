@@ -350,9 +350,8 @@ def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 19
         
     return all_encode
 
-def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, bbox=None):
+def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
 
-    #print(json.dumps(stmd, indent=4))
     # Title and summary
     if sttype == "permafrost":
         ds.attrs['title'] = np.array(f"Permafrost station {stmd['data'][0]['name']} ({stmd['data'][0]['id']})".encode("utf-8")) 
@@ -365,6 +364,11 @@ def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, bbox=None):
         ds.attrs['title'] = np.array(f"Weather station {stmd['data'][0]['name']} ({stmd['data'][0]['id']})".encode("utf-8")) 
         ds.attrs['featureType'] = 'timeSeries'
     ds.attrs['summary'] = np.array(f"Information from the station {stmd['data'][0]['name']} with MET station number {stmd['data'][0]['id']}.  {dsmd['abstract']}".encode("utf-8"))
+
+    # Keywords
+    if kw != None:
+        ds.attrs['keywords'] = ', '.join(kw)
+        ds.attrs['keywords_vocabulary'] = 'GCMDSK:GCMD Science Keywords:https://gcmd.earthdata.nasa.gov/kms/concepts/concept_scheme/sciencekeywords'
 
     # License (TODO, not complete)
     ds.attrs['license'] = stmd['license']
@@ -509,10 +513,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                
             #print('>>> ', dir_elements_resol['air_temperature'])
             for t in resols:
+                # Only handling one observation frequency at the time
                 if t != frostcfg['frequency']:
-                    print('The observation frequency found is not requested, skipping...')
                     continue
-                print('Extracting information for frequency ', t)
                 
                 vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
                 if est=='permafrost' and not 'soil_temperature' in vars_to_down:
@@ -541,6 +544,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     continue
 
                 # Read into Pandas DataFrame
+                # Dumpt to file is only temporarily TODO
                 df = pd.read_csv(StringIO(data.text),header=0,
                     parse_dates=False,
                     index_col=False,na_values=['-'])
@@ -689,10 +693,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         except KeyError:
                             ds_station[vname].attrs['long_name'] = vname.replace('_', ' ')
                         ds_station[vname].attrs['standard_name'] = vname
-                        #print(vname)
-                        #print(dir_elements_resol[vname][0])
-                        #print(dir_elements_resol[vname][1])
-                        #print(dir_elements_resol[vname][2])
                         try:
                             ds_station[vname].attrs['units'] = dir_elements_resol[vname][2]['unit']
                         except KeyError:
@@ -728,13 +728,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 else:
                     pass
 
-                """
-                print(all_ds_station)
-                sys.exit()
-                """
                 if 'all_ds_station' in  locals():
-                    # Add global attributes
-    
                     # Generate BBOX for moving stations
                     if est == 'moving' and 'latitude' in all_ds_station.data_vars:
                         lats = np.array(all_ds_station.data_vars['latitude'].values).flatten().astype('float')
@@ -750,10 +744,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     try:
                         voc_list = [''.join(['GCMDSK:', x]) for x in voc_list]
                     except TypeError:
-                        voc_list = 'GCMDSK: '
-                    all_ds_station.attrs['keywords'] = ', '.join(voc_list)
-                    all_ds_station.attrs['keywords_vocabulary'] = 'GCMDSK:GCMD Science Keywords:https://gcmd.earthdata.nasa.gov/kms/concepts/concept_scheme/sciencekeywords'
-                    #print(all_ds_station.dims)
+                        voc_list = None 
+
                     # Dump to Netcdf
                     out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
                     outputfile = os.path.join(out_folder, s+'_'+datasetstart[:10]+'_'+datasetend[:10]+'_time_resolution_'+str(t)+'.nc')
@@ -772,8 +764,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             
                             all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
                             # Add global attributes
-                            all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, {'datasetstart': datasetstart,'datasetend': datasetend}, bbox)
-                            print(all_ds_station_period)
+                            all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
+                            #print(all_ds_station_period)
                             all_ds_station = all_ds_station.fillna(myfillvalue)
                             #all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
                             all_ds_station_period.to_netcdf(outputfile)
