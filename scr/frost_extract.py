@@ -328,14 +328,16 @@ def gen_periods(from_day, to_day):
             
 
 # This doesn't woprk entirely as expected, time is not handled...
-def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 1970-01-01 00:00:00'):
+"""
+Handle data type conversions when writing NetCDF files.
+This is particularly important for publishing in TDS v4
+"""
+def set_encoding(ds, fill=-999, time_name = 'time'):
     
     all_encode = {}
-        
-    for v in list(ds.keys()):
-        if v == time_name:
-            dtip = 'i4'
-        elif 'float' in str(ds[v].dtype):
+
+    for v in list(ds.data_vars):
+        if 'float' in str(ds[v].dtype):
             dtip = 'f4'
         elif 'int' in str(ds[v].dtype):
             dtip = 'i4'
@@ -343,9 +345,12 @@ def set_encoding(ds, fill=-999, time_name = 'time', time_units='seconds since 19
             #dtip = str(ds[v].dtype)
             dtip = 'S1'
         encode = {'zlib': True, 'complevel': 9, 'dtype': dtip, '_FillValue':fill}
+        all_encode[v] = encode
+
+    for v in list(ds.coords):
         if v == time_name:
-            encode['units'] = time_units
-            
+            dtip = 'i4'
+        encode = {'zlib': True, 'complevel': 9, 'dtype': dtip, }
         all_encode[v] = encode
         
     return all_encode
@@ -756,7 +761,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             alltimes = [x for x in ds_dictio['coords'] if 'time' in x]
                             for t_c in alltimes:
                                 bad_time = ds_dictio['coords'][t_c]['data']
-                                #ds_dictio['coords'][t_c]['data'] = np.array([((ti - datetime.strptime(p[0], '%Y-%m-%d')).total_seconds())//60 for ti in bad_time]).astype('i4')
                                 ds_dictio['coords'][t_c]['data'] = np.array([ti.replace(tzinfo=timezone.utc).timestamp() for ti in bad_time]).astype('i4')
                             
                             all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
@@ -770,7 +774,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             """
                             all_ds_station = all_ds_station.fillna(myfillvalue)
                             # Dump data
-                            #all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_units='minutes since '+p[0]+' 00:00:00'))
                             all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_name=alltimes[0]))
                             del all_ds_station
                             del all_ds_station_period
