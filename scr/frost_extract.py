@@ -309,8 +309,6 @@ A preliminary fix has been added temporarily, but still not fully good.
 """
 def gen_periods(from_day, to_day):
     
-    print(from_day.year)
-    print(to_day.year)
     for j in range(from_day.year, to_day.year+1):
         aa = list(month_name).index('January')
         zz = len(month_name)
@@ -353,6 +351,7 @@ def set_encoding(ds, fill=-999, time_name = 'time'):
         encode = {'zlib': True, 'complevel': 9, 'dtype': dtip, }
         all_encode[v] = encode
         
+    print(json.dumps(all_encode, indent=4))
     return all_encode
 
 def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
