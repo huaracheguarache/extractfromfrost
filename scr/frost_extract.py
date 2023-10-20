@@ -259,7 +259,7 @@ def get_vars(request, frostcfg, mylog, msg):
 
 
 """
-Not sure on this but believe it is listing periods with asctual data.
+Not sure on this but believe it is listing periods with actual data.
 """
 def get_periods(pars, metadata, direc, backwards=None):
     
@@ -523,8 +523,10 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 
                 vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
                 if est=='permafrost' and not 'soil_temperature' in vars_to_down:
+                    log.warn('No soil_temperature for this station.')
                     continue
                 if not vars_to_down:
+                    log.warn('No data found.')
                     continue
                 t_name = ''.join(['time_', t])
 
@@ -534,11 +536,16 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
             
                 # Create request for observations
                 log.info('Retrieving data for station: %s, time resolution: %s and period: %s/%s', s, t, p[0],p[1])
-                log.info('Variables: %s', vars_to_down)
-                myrequest_data = ('sources='+s+'&elements='
-                    +', '.join(vars_to_down)
-                    +'&fields='+','.join(frostcfg['fields'])
-                    +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+t)
+                log.info('Variables found for this station and time resolution: %s', vars_to_down)
+                if est == "permafrost":
+                    myrequest_data = ('sources='+s+'&elements=soil_temperature'
+                        +'&fields='+','.join(frostcfg['fields'])
+                        +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+t)
+                else:
+                    myrequest_data = ('sources='+s+'&elements='
+                        +', '.join(vars_to_down)
+                        +'&fields='+','.join(frostcfg['fields'])
+                        +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+t)
                 
                 # Connect and read observations
                 data, msg_err = pull_request(frostcfg['endpointobs'], 
@@ -565,16 +572,20 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 df.drop(['referenceTime'], axis=1, inplace=True)
     
                 # Check if column names has to be modified before this block
+                # Restructure permafrost data
                 if est=='permafrost':
                     perma = 'soil_temperature'
+                    # Identify which columns that contain soil_temperature
                     cols = df.columns
                     soil_num = [df.columns.get_loc(x) for x in cols if perma in x]
+                    # Since every second coumn is soil_temperature and depth, identify depth columns
                     depth_num = [x+1 for x in soil_num]
                     ntime = 0
                     mytimes = []
                     myprofiles = list()
                     mydepths = list()
                     quality_check = []
+                    # Loop over time and reshape
                     for i in df.loc[:,t_name]:
                         mydata = {
                                 'depth':df.iloc[ntime, depth_num].values,
@@ -592,10 +603,17 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         ntime += 1
                     if True in quality_check:   
                         da_profile = xr.DataArray(myprofiles, 
-                                dims=[t_name,'depth'],
+                                dims=['profile','depth'],
                                 coords={
-                                    t_name:mytimes,
+                                    'profile':range(1,len(mytimes)+1),
                                     'depth':mydepths})
+
+                        """
+                        dims=[t_name,'depth'],
+                        coords={
+                        t_name:mytimes,
+                        'depth':mydepths})
+                        """
                     
                     df.drop(df.columns[depth_num+soil_num],axis=1,inplace=True)
                     if perma in vars_to_down:
@@ -624,7 +642,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         included.append(el)
                     else:
                         excluded.append(el)
-                if not included:
+                if not included and est != "permafrost":
                     continue
                 for inc in included:
                     try:
@@ -650,36 +668,43 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
   
                 if est=='permafrost' and 'da_profile' in locals():
                     
-                    #To include only the soil temperature
-                    #print(ds_station.dims)
+                    print(da_profile)
+                    print(mytimes)
+                    # To include only the soil temperature
                     ds_station = ds_station.drop([v for v in ds_station.data_vars])
                     
-                    ds_station = ds_station.assign_coords(depth=da_profile.depth.values)
+                    ds_station = ds_station.assign_coords(depth=da_profile.depth.values,profile=da_profile.profile.values)
                     ds_station['depth'].attrs['standard_name'] = 'depth'
                     ds_station['depth'].attrs['long_name'] = 'depth below surface'
                     ds_station['depth'].attrs['units'] = 'cm'
 
-                    ds_station[perma] = ((t_name, 'depth'), da_profile.values)
+                    #ds_station[perma] = ((t_name, 'depth'), da_profile.values)
+                    ds_station[t_name] = (('profile') , mytimes)
+                    ds_station[perma] = (('profile', 'depth'), da_profile.values)
                     ds_station[perma].attrs['long_name'] = perma.replace('_', ' ')
                     ds_station[perma].attrs['standard_name'] = perma
                     ds_station[perma].attrs['units'] = 'degC'
+                    ds_station[perma].attrs['coordinates'] = t_name
                     ds_station[perma].attrs['performance_category'] = get_performance_category(dir_elements_resol[perma][1])
-                    ds_station[perma].attrs['fillvalue'] = float(myfillvalue)
+                    #ds_station[perma].attrs['fillvalue'] = float(myfillvalue)
                     voc_list.append(get_keywords_from_json(perma, output['json_path']))
                     var_dims = [item for v in ds_station.data_vars for item in ds_station[v].dims]
                     for dd in list(ds_station.dims):
-                        #print(dd)
+                        print('>>> ', dd)
                         if not dd in var_dims:
-                            #print(ds_station.dims)
                             ds_station = ds_station.drop_dims(dd)
-                            #print(ds_station.dims)
                             try:
+                                if dd == 'profile':
+                                    continue
+                                if 'time' in dd:
+                                    continue
                                 ds_station = ds_station.drop(dd)
                             except KeyError:
                                 continue
                     del da_profile
-                
+
                 # Specify variable attributes, time is converted further down
+                print(ds_station)
                 ds_station[t_name].attrs['standard_name'] = 'time'
                 ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
                 ds_station[t_name].attrs['units'] = 'seconds since 1970-01-01T00:00:00+0'
