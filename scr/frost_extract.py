@@ -668,8 +668,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
   
                 if est=='permafrost' and 'da_profile' in locals():
                     
-                    print(da_profile)
-                    print(mytimes)
                     # To include only the soil temperature
                     ds_station = ds_station.drop([v for v in ds_station.data_vars])
                     
@@ -677,6 +675,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     ds_station['depth'].attrs['standard_name'] = 'depth'
                     ds_station['depth'].attrs['long_name'] = 'depth below surface'
                     ds_station['depth'].attrs['units'] = 'cm'
+                    ds_station['profile'].attrs['long_name'] = 'Number of profiles in the timeseries'
 
                     #ds_station[perma] = ((t_name, 'depth'), da_profile.values)
                     ds_station[t_name] = (('profile') , mytimes)
@@ -687,10 +686,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     ds_station[perma].attrs['coordinates'] = t_name
                     ds_station[perma].attrs['performance_category'] = get_performance_category(dir_elements_resol[perma][1])
                     #ds_station[perma].attrs['fillvalue'] = float(myfillvalue)
-                    voc_list.append(get_keywords_from_json(perma, output['json_path']))
+                    #voc_list.append(get_keywords_from_json(perma, output['json_path']))
                     var_dims = [item for v in ds_station.data_vars for item in ds_station[v].dims]
                     for dd in list(ds_station.dims):
-                        print('>>> ', dd)
                         if not dd in var_dims:
                             ds_station = ds_station.drop_dims(dd)
                             try:
@@ -704,7 +702,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     del da_profile
 
                 # Specify variable attributes, time is converted further down
-                print(ds_station)
                 ds_station[t_name].attrs['standard_name'] = 'time'
                 ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
                 ds_station[t_name].attrs['units'] = 'seconds since 1970-01-01T00:00:00+0'
