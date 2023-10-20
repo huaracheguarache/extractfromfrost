@@ -351,7 +351,7 @@ def set_encoding(ds, fill=-999, time_name = 'time'):
         encode = {'zlib': True, 'complevel': 9, 'dtype': dtip, }
         all_encode[v] = encode
         
-    print(json.dumps(all_encode, indent=4))
+    #print(json.dumps(all_encode, indent=4))
     return all_encode
 
 def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
@@ -555,7 +555,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     continue
 
                 # Read into Pandas DataFrame
-                # Dumpt to file is only temporarily TODO
+                # Dump to file is only temporarily TODO
                 df = pd.read_csv(StringIO(data.text),header=0,
                     parse_dates=False,
                     index_col=False,na_values=['-'])
@@ -598,6 +598,11 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             quality_check.append(True)
                             mydepths = mytmpdata.depth
                         mytmpdata.fillna(value=myfillvalue, inplace = True)
+                        """
+                        print('>>> ', i, ntime)
+                        print(mytmpdata)
+                        input('Press key to continue')
+                        """
                         myprofiles.append(mytmpdata.soil_temperature)
                         mytimes.append(i)
                         ntime += 1
@@ -706,14 +711,19 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
                 ds_station[t_name].attrs['units'] = 'seconds since 1970-01-01T00:00:00+0'
                 check_list = []
+                # Not sure what happens here...
                 for vname in list(ds_station.data_vars):
                     if vname in check_list:
                         continue
                     else:
                         ds_station.assign()
                         try:
+                            """
+                            This doesn't make sense for permafrost at least
                             val_unit = str(dir_elements_resol[vname][2]['level']['value']) + ' ' + str(dir_elements_resol[vname][2]['level']['unit'])
-                            ds_station[vname].attrs['long_name'] = vname.replace('_',' ') + ' ' + val_unit
+                            print(val_unit)
+                            """
+                            ds_station[vname].attrs['long_name'] = vname.replace('_',' ') 
                         except KeyError:
                             ds_station[vname].attrs['long_name'] = vname.replace('_', ' ')
                         ds_station[vname].attrs['standard_name'] = vname
@@ -736,12 +746,16 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                                               combine_attrs ='no_conflicts')
                 '''
 
-                for v in list(ds_station.variables):
-                    if est=='permafrost' and v != perma:
-                        continue
-                    if 'time' in v:
-                        continue
-                    all_ds_station[v] = ds_station[v]
+                # Replace the dataset totally for permafrost
+                if est == "permafrost":
+                    all_ds_station = ds_station
+                else:
+                    for v in list(ds_station.variables):
+                        if est=='permafrost' and v != perma:
+                            continue
+                        if 'time' in v:
+                            continue
+                        all_ds_station[v] = ds_station[v]
                 del ds_station
                 #print(all_ds_station['time_PT1H'])
                 
