@@ -566,8 +566,12 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 
                 # Parsing time
                 timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
-                datasetstart = min(timos).strftime('%Y-%m-%dT%H:%M:%SZ')
-                datasetend = max(timos).strftime('%Y-%m-%dT%H:%M:%SZ')
+                mindate = min(timos)
+                maxdate = max(timos)
+                datasetstart = mindate.strftime('%Y-%m-%dT%H:%M:%SZ')
+                datasetend = maxdate.strftime('%Y-%m-%dT%H:%M:%SZ')
+                # String to use in output file name
+                filenamestr = datasetstart[:10]+f'_{maxdate.year}-{maxdate.month:02}-{monthrange(maxdate.year,maxdate.month)[1]}'
                 df.loc[:,t_name] = timos
                 df.drop(['referenceTime'], axis=1, inplace=True)
     
@@ -782,9 +786,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     except TypeError:
                         voc_list = None 
 
-                    # Dump to Netcdf
+                    # Dump to NetCDF in monthly files, continues updates are overwriting the last file.
                     out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
-                    outputfile = os.path.join(out_folder, s+'_'+datasetstart[:10]+'_'+datasetend[:10]+'_time_resolution_'+str(t)+'.nc')
+                    outputfile = os.path.join(out_folder, s+'_'+filenamestr+'_time_resolution_'+str(t)+'.nc')
                     if os.path.exists(out_folder):
                         pass
                     else:
