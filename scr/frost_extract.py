@@ -450,7 +450,14 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         else:
             os.mkdir(os.path.join(output['destdir'], s))
         
-        station_dict = [x for x in sts_dicts if x['id']==s][0]
+        #station_dict = [x for x in sts_dicts if x['id']==s][0]
+        station_dict = [x for x in sts_dicts if x['id']==s]
+        # Bail out if requester station does not exist...
+        if not station_dict:
+            log.warn(f'The requested station {s} was not found.'))
+            continue
+
+        station_dict = station_dict[0]
         
         # Connect and read metadata about the station
         log.info("New station\n==========")
