@@ -454,7 +454,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         station_dict = [x for x in sts_dicts if x['id']==s]
         # Bail out if requester station does not exist...
         if not station_dict:
-            log.warn(f'The requested station {s} was not found.'))
+            log.warn(f'The requested station {s} was not found.')
             continue
 
         station_dict = station_dict[0]
