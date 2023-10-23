@@ -263,9 +263,14 @@ Not sure on this but believe it is listing periods with actual data.
 """
 def get_periods(pars, metadata, direc, backwards=None):
     
+    today = date.today()
     periods = []
     if pars.history:
         from_day = datetime.strptime(metadata['validFrom'],'%Y-%m-%dT%H:%M:%S.%fZ')
+        to_day = date.today()
+        periods = list(gen_periods(from_day, to_day))
+    elif pars.update:
+        from_day = datetime.strptime(f'{today.year:02d}-{today.month:02d}-01','%Y-%m-%d')
         to_day = date.today()
         periods = list(gen_periods(from_day, to_day))
     elif pars.startday and pars.endday:
@@ -454,7 +459,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         station_dict = [x for x in sts_dicts if x['id']==s]
         # Bail out if requester station does not exist...
         if not station_dict:
-            log.warn(f'The requested station {s} was not found.')
+            log.warning(f'The requested station {s} was not found.')
             continue
 
         station_dict = station_dict[0]
