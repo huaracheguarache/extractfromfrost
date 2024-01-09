@@ -773,14 +773,23 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                                 continue
                     del da_profile
 
+
+                # Modify variable names to remove functions and time sampling
+                mycolnames = list(ds_station.keys())
+                mynewcolnames = {}
+                for it in mycolnames:
+                    itnew = re.sub('mean|sum|PT1H|[\ ()-]','',it)
+                    mynewcolnames.update({it:itnew})
+                ds_station = ds_station.rename_vars(mynewcolnames)
+
                 # Specify variable attributes, time is converted further down
                 ds_station[t_name].attrs['standard_name'] = 'time'
                 ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
                 ds_station[t_name].attrs['units'] = 'seconds since 1970-01-01T00:00:00+0'
                 check_list = []
-                # Not sure what happens here...
-                for vname in list(ds_station.data_vars):
-                    print('>>>> ', vname)
+                # Loop through variables and update global keywords attributes as well as variable attributes like units, standard_name, long_name and performance category for measurements
+                #for vname in list(ds_station.data_vars):
+                for vname in mynewcolnames.keys():
                     if vname in check_list:
                         continue
                     else:
@@ -791,28 +800,20 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             val_unit = str(dir_elements_resol[vname][2]['level']['value']) + ' ' + str(dir_elements_resol[vname][2]['level']['unit'])
                             print(val_unit)
                             """
-                            ds_station[vname].attrs['long_name'] = vname.replace('_',' ') 
+                            ds_station[mynewcolnames[vname]].attrs['long_name'] = vname.replace('_',' ') 
                         except KeyError:
-                            ds_station[vname].attrs['long_name'] = vname.replace('_', ' ')
-                        ds_station[vname].attrs['standard_name'] = vname
+                            ds_station[mynewcolnames[vname]].attrs['long_name'] = mynewcolnames[vname].replace('_', ' ')
+                        ds_station[mynewcolnames[vname]].attrs['standard_name'] = mynewcolnames[vname]
                         try:
-                            ds_station[vname].attrs['units'] = dir_elements_resol[vname][2]['unit']
+                            ds_station[mynewcolnames[vname]].attrs['units'] = dir_elements_resol[vname][2]['unit']
                         except KeyError:
-                            ds_station[vname].attrs['units'] = 'S1'
-                        # TODO: Need to handle keyword lookup different, lookup in get_keywords... below is based on CF names, while performance category on FROST names...
-                        ds_station[vname].attrs['performance_category'] = get_performance_category(dir_elements_resol[vname][1])
+                            ds_station[mynewcolnames[vname]].attrs['units'] = 'S1'
+                        # Performance category loookup is based on Frost variable names
+                        ds_station[mynewcolnames[vname]].attrs['performance_category'] = get_performance_category(dir_elements_resol[vname][1])
                         #ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
-                        voc_list.append(get_keywords_from_json(vname, output['json_path']))
+                        # Keywords lookup is based on CF standard names
+                        voc_list.append(get_keywords_from_json(mynewcolnames[vname], output['json_path']))
                         check_list.append(''.join(['GCMDSK:', vname]))
-
-                # Modify variable names to remove functions and time sampling
-                mycolnames = list(ds_station.keys())
-                mynewcolnames = {}
-                for it in mycolnames:
-                    itnew = re.sub('mean|sum|PT1H|[\ ()-]','',it)
-                    mynewcolnames.update({it:itnew})
-
-                ds_station = ds_station.rename_vars(mynewcolnames)
 
                 # Replace the dataset totally for permafrost
                 if est == "permafrost":
