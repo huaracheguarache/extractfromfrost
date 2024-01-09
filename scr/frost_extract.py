@@ -573,7 +573,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     log.warn('No soil_temperature for this station.')
                     continue
                 if not vars_to_down:
-                    log.warn('No data found.')
+                    log.warning('No data found.')
                     continue
                 t_name = ''.join(['time_', t])
 
@@ -695,7 +695,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 df = df.set_index(t_name)
                 # TODO: Not sure what is done below? Could be removed?
                 # Øystein Godøy, METNO/FOU, 2023-03-08 
-                print('### ', df.keys())
                 for c in df.keys():
                     if c.find('(') > 0 and c.find('(')==c.rfind('('):
                         df.rename(columns={c:c[:c.find('(')]}, inplace=True)
@@ -703,7 +702,6 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         df.rename(columns={c:c[:c.rfind('(')]}, inplace=True)
                     if c.find("\\") > 0:
                         df.rename(columns={c:c[:c.find("\\")]}, inplace=True)
-                print('### ', df.keys())
                     
                 included = list()
                 excluded = list()
@@ -711,15 +709,11 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 # Double check...
                 # Øystein Godøy, METNO/FOU, 2023-03-10 
                 cols = df.keys()
-                print('>>>> ', cols)
-                print('>>>> ', vars_to_down)
                 for el in vars_to_down:
                     if el in cols:
                         included.append(el)
                     else:
                         excluded.append(el)
-                print('i: ',included)
-                print('e: ',excluded)
                 if not included and est != "permafrost":
                     continue
                 for inc in included:
@@ -731,17 +725,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 if excluded:
                     for ex in excluded:
                         df.loc[:,ex] = [myfillvalue]*len(df.index)
-                print('###### so far so good...')
 
-                # Rename variables to avoid functions and times in variable names
-                mycolnames = df.keys()
-                mynewcolnames = {}
-                for it in mycolnames:
-                    itnew = re.sub('mean|sum|pt1h|[()-]','',it)
-                    mynewcolnames.update({it:itnew})
-
-                df.rename(columns=mynewcolnames, inplace=True)
-                
                 # Create Dataset from Dataframe
                 df.reset_index(drop=False, inplace=True)
                 big_dictio = {"coords":{}, "dims":t_name, "data_vars":{}}
@@ -796,6 +780,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 check_list = []
                 # Not sure what happens here...
                 for vname in list(ds_station.data_vars):
+                    print('>>>> ', vname)
                     if vname in check_list:
                         continue
                     else:
@@ -814,20 +799,20 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             ds_station[vname].attrs['units'] = dir_elements_resol[vname][2]['unit']
                         except KeyError:
                             ds_station[vname].attrs['units'] = 'S1'
+                        # TODO: Need to handle keyword lookup different, lookup in get_keywords... below is based on CF names, while performance category on FROST names...
                         ds_station[vname].attrs['performance_category'] = get_performance_category(dir_elements_resol[vname][1])
                         #ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
                         voc_list.append(get_keywords_from_json(vname, output['json_path']))
                         check_list.append(''.join(['GCMDSK:', vname]))
-                '''
-                #Aggregate datasets with same dimension, but different dimension length
-                if not 'all_ds_station' in locals():
-                    all_ds_station = ds_station
-                else:                    
-                    all_ds_station = xr.merge([all_ds_station, ds_station],
-                                              compat = "no_conflicts",
-                                              fill_value = myfillvalue, join='left',
-                                              combine_attrs ='no_conflicts')
-                '''
+
+                # Modify variable names to remove functions and time sampling
+                mycolnames = list(ds_station.keys())
+                mynewcolnames = {}
+                for it in mycolnames:
+                    itnew = re.sub('mean|sum|PT1H|[\ ()-]','',it)
+                    mynewcolnames.update({it:itnew})
+
+                ds_station = ds_station.rename_vars(mynewcolnames)
 
                 # Replace the dataset totally for permafrost
                 if est == "permafrost":
