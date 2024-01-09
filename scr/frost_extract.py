@@ -19,6 +19,7 @@ import json
 import yaml
 import logging
 import logging.handlers
+import re
 from datetime import datetime, timedelta, date, timezone
 from calendar import monthrange, month_name
 
@@ -128,7 +129,7 @@ def parse_arguments():
     parser.add_argument("-a","--all",dest="stations",
             help="To download/update data from all stations (not sure this works)", required=False, action='store_true')
     parser.add_argument("-t","--type",dest="type_station",
-            help="To select the type of stations; fixed, permafrost, or moving", required=False)
+            help="To select the type of stations; fixed, permafrost, moving or irradiance", required=False)
     args = parser.parse_args()
 
     if args.startday is None:
@@ -427,6 +428,21 @@ def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
     return(ds)
 
 def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
+    '''
+    Does the actual exrtraction of data
+
+    Args:
+        frostcfg: dictionary with endpoints and stations to collect.
+        pars: 
+        log: logger stream to use
+        stmd: default discovery metadata
+        output: where to put information and log
+        simple: not sure if this is used
+        est: type of station
+
+    Returns:
+        NA
+    '''
     
 
     resols = ('PT1S', 'PT1M', 'PT5M', 'PT10M', 'PT15M', 'PT20M', 'PT30M', 'PT1H', 'PT3H', 'PT6H', 'PT12H', 'P1D',
@@ -441,6 +457,11 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                  'P3M':'3 months', 'P6M':'6 months', 'P1Y':'1 year'} 
     performances = ('A', 'B', 'C', 'D')
     avoid_var = ['min', 'max', 'mean', 'PT', 'over_time', 'sum', 'P1D']
+    irradstvars = ['surface_downwelling_shortwave_flux_in_air',
+            'surface_upwelling_shortwave_flux_in_air',
+            'surface_downwelling_longwave_flux_in_air',
+            'surface_upwelling_longwave_flux_in_air',
+            'duration_of_sunshine',]
     myfillvalue = -999
     
     # Get a list with all stations and some metadata
@@ -503,8 +524,16 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
             # Loop through ELEMENTS (variables) and create list for extraction
             dir_elements_resol = {}
             for e in elements:
-                if simple and any(a in e for a in avoid_var):
+                if (est != 'irradiance') and simple and any(a in e for a in avoid_var):
                     continue
+                elif est == 'irradiance':
+                    match = False
+                    for x in irradstvars:
+                        if x in e:
+                            match = True
+                            break
+                    if not match:
+                        continue
                 times = [j['timeResolution'] for j in variables['data'] if j['elementId']==e]
                 max_resol = resols[min([resols.index(t) for t in times])]
                 perfs = [j['performanceCategory'] for j in variables['data'] if (j['elementId']==e and j['timeResolution']==max_resol)]
@@ -514,20 +543,26 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
 
             #print(json.dumps(dir_elements_resol, indent=2))
             #print('>>>> ', times)
+            #sys.exit()
            
             #TIME RESOLUTIONS LOOP
             # Why two takes on the resols loop? Øystein Godøy, METNO/FOU, 2023-03-08 
             time_dim = {}
             for t in resols:
                 vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
+                #print('>>>> ', vars_to_down)
                 if not vars_to_down:
                     continue
                 dates = pd.date_range(p[0], p[1], freq=freq_dict[t])
+                #print('>>>> ', dates)
+                #print('>>>> ', len(dates))
+                if len(dates) == 0:
+                    continue
                 dates = dates.drop(dates[-1])
                 t_name = ''.join(['time_', t])
                 time_dim[t_name] = ([t_name], dates)
                
-            #print('>>> ', dir_elements_resol['air_temperature'])
+            #print('>>> ', dir_elements_resol)
             for t in resols:
                 # Only handling one observation frequency at the time
                 if t != frostcfg['frequency']:
@@ -542,6 +577,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     continue
                 t_name = ''.join(['time_', t])
 
+                # TODO check if this is needed...
                 if not 'all_ds_station' in locals():
                     all_ds_station = xr.Dataset(coords={t_name:time_dim[t_name]})
                     #print('>>>> ', all_ds_station.dims)
@@ -554,17 +590,25 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         +'&fields='+','.join(frostcfg['fields'])
                         +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+t)
                 else:
+                    # Drop soil_temperature for fixed stations, to be revisited later TODO
+                    if 'soil_temperature' in vars_to_down:
+                        vars_to_down.remove('soil_temperature')
                     myrequest_data = ('sources='+s+'&elements='
                         +', '.join(vars_to_down)
                         +'&fields='+','.join(frostcfg['fields'])
                         +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+t)
-                
+                #print(myrequest_data)
+                #sys.exit()
+
                 # Connect and read observations
                 data, msg_err = pull_request(frostcfg['endpointobs'], 
                              myrequest_data, frostcfg, mylog, s=s, data=True)
                 if msg_err:
                     log.warning('Error experienced downloading data %s', msg_err)
                     continue
+                #print(type(data))
+                #print(data.text)
+                #sys.exit()
 
                 # Read into Pandas DataFrame
                 # Dump to file is only temporarily TODO
@@ -574,7 +618,14 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 fp = open('myfile.txt', 'w')
                 fp.write(df.to_string())
                 fp.close()
-                #print(df)
+                # There are issues with naming conventions between different end points, doing a partial renaming for string matching, full renaming further down
+                mycolnames = df.keys()
+                mynewcolnames = {}
+                for it in mycolnames:
+                    itnew = re.sub('pt1h',lambda ele: ele.group(0).upper(),it)
+                    mynewcolnames.update({it:itnew})
+
+                df.rename(columns=mynewcolnames, inplace=True)
                 
                 # Parsing time
                 timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
@@ -642,8 +693,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 
                 # SOME CLEANNING
                 df = df.set_index(t_name)
-                # Not sure what is done below? Could be removed?
+                # TODO: Not sure what is done below? Could be removed?
                 # Øystein Godøy, METNO/FOU, 2023-03-08 
+                print('### ', df.keys())
                 for c in df.keys():
                     if c.find('(') > 0 and c.find('(')==c.rfind('('):
                         df.rename(columns={c:c[:c.find('(')]}, inplace=True)
@@ -651,6 +703,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         df.rename(columns={c:c[:c.rfind('(')]}, inplace=True)
                     if c.find("\\") > 0:
                         df.rename(columns={c:c[:c.find("\\")]}, inplace=True)
+                print('### ', df.keys())
                     
                 included = list()
                 excluded = list()
@@ -658,11 +711,15 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 # Double check...
                 # Øystein Godøy, METNO/FOU, 2023-03-10 
                 cols = df.keys()
+                print('>>>> ', cols)
+                print('>>>> ', vars_to_down)
                 for el in vars_to_down:
                     if el in cols:
                         included.append(el)
                     else:
                         excluded.append(el)
+                print('i: ',included)
+                print('e: ',excluded)
                 if not included and est != "permafrost":
                     continue
                 for inc in included:
@@ -674,6 +731,16 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 if excluded:
                     for ex in excluded:
                         df.loc[:,ex] = [myfillvalue]*len(df.index)
+                print('###### so far so good...')
+
+                # Rename variables to avoid functions and times in variable names
+                mycolnames = df.keys()
+                mynewcolnames = {}
+                for it in mycolnames:
+                    itnew = re.sub('mean|sum|pt1h|[()-]','',it)
+                    mynewcolnames.update({it:itnew})
+
+                df.rename(columns=mynewcolnames, inplace=True)
                 
                 # Create Dataset from Dataframe
                 df.reset_index(drop=False, inplace=True)
