@@ -224,17 +224,17 @@ def pull_request(site, request, frostcfg, mylog, s = None, data = False):
     return (metadata, msger)
 
 
-def get_stations(frostcfg, pars, mylog, st_type='fixed'):
+def get_stations(frostcfg, pars, mylog):
     
     # Connect and read metadata about the station
     
     if pars.stations is False:
-        mylog.info('Retrieving selected '+st_type+' stations in FROST.')
+        mylog.info('Retrieving selected '+frostcfg['st_type']+' stations in FROST.')
         stations = frostcfg['stations']       
-        myrequest = 'ids='+','.join(stations)
+        myrequest = 'ids='+','.join(stations.keys())
         metadata, msger = pull_request(frostcfg['endpointmeta'], myrequest, frostcfg, mylog)
     else:
-        mylog.info('Retrieving all '+st_type+' stations in FROST. %s')
+        mylog.info('Retrieving all '+frostcfg['st_type']+' stations in FROST. %s')
         if st_type == 'permafrost':
             myrequest = 'types=SensorSystem&elements=soil_temperature'
         elif st_type == 'moving':
@@ -360,7 +360,33 @@ def set_encoding(ds, fill=-999, time_name = 'time'):
     #print(json.dumps(all_encode, indent=4))
     return all_encode
 
-def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
+def add_global_attrs(sttype, ds, dsmd, stmd, stmdd, dyninfo, kw, bbox=None):
+    """
+    Adds global attributes according to ACDD to NetCDF file.
+
+    Parameters
+    ----------
+    sttype: type of station, fixed, moving, permafrost
+    ds: xarray object
+        xarray dataset
+    dsmd: dict
+        generic global attributesa from configuration file
+    stmd: dict
+        Metadata from frost
+    stmdd: dict
+        Detailed metadata per station (not required)
+    dyninfo: list
+        start and end of dataset
+    kw: list
+        GCMD science keywords
+    bbox: dict
+        geographical bounding box
+
+    Returns
+    -------
+    ds: xarray dataset
+        xarray dataset
+    """
 
     # Title and summary
     if sttype == "permafrost":
@@ -368,7 +394,7 @@ def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
         ds.attrs['featureType'] = 'timeSeriesProfile'
     elif sttype == "moving":
         # This is yet not tested and need more development...
-        ds.attrs['title'] = np.array(f"Weather station  from ship {stmd['data'][0]['name']} ({stmd['data'][0]['id']})".encode("utf-8")) 
+        ds.attrs['title'] = np.array(f"Weather station from ship {stmd['data'][0]['name']} ({stmd['data'][0]['id']})".encode("utf-8")) 
         ds.attrs['featureType'] = 'Trajectory'
     else:
         ds.attrs['title'] = np.array(f"Weather station {stmd['data'][0]['name']} ({stmd['data'][0]['id']})".encode("utf-8")) 
@@ -381,7 +407,12 @@ def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
         ds.attrs['keywords_vocabulary'] = 'GCMDSK:GCMD Science Keywords:https://gcmd.earthdata.nasa.gov/kms/concepts/concept_scheme/sciencekeywords'
 
     # License (TODO, not complete)
-    ds.attrs['license'] = stmd['license']
+    if stmdd:
+        stmddkeys = stmdd.keys()
+        if 'license' in stmddkeys:
+            ds.attrs['license'] = stmdd['license']
+        else:
+            ds.attrs['license'] = stmd['license']
 
     # Spatiotemporal information
     ds.attrs['time_coverage_start'] = dyninfo['datasetstart']
@@ -398,11 +429,48 @@ def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
         ds.attrs['geospatial_lon_max'] = stmd['data'][0]['geometry']['coordinates'][0]
 
     # People and institutions contributing (TODO, not complete)
-    ds.attrs['creator_name'] = dsmd['PrincipalInvestigator'] 
-    ds.attrs['creator_email'] = dsmd['PrincipalInvestigatorEmail']
-    ds.attrs['creator_url'] = dsmd['PrincipalInvestigatorOrganisationURL']
-    ds.attrs['creator_institution'] = dsmd['PrincipalInvestigatorOrganisation']
-    ds.attrs["contributor"] = np.array(dsmd['contributor'].encode("utf-8"))
+    if stmdd:
+        if 'PrincipalInvestigator' in stmddkeys:
+            ds.attrs['creator_name'] = stmdd['PrincipalInvestigator'] 
+        else:
+            ds.attrs['creator_name'] = dsmd['PrincipalInvestigator'] 
+        if 'PrincipalInvestigatorEmail' in stmddkeys:
+            ds.attrs['creator_email'] = stmdd['PrincipalInvestigatorEmail']
+        else:
+            ds.attrs['creator_email'] = dsmd['PrincipalInvestigatorEmail']
+        if 'PrincipalInvestigatorOrganisationURL' in stmddkeys:
+            ds.attrs['creator_url'] = stmdd['PrincipalInvestigatorOrganisationURL']
+        else:
+            ds.attrs['creator_url'] = dsmd['PrincipalInvestigatorOrganisationURL']
+        if 'PrincipalInvestigatorOrganisation' in stmddkeys:
+            ds.attrs['creator_institution'] = stmdd['PrincipalInvestigatorOrganisation']
+        else:
+            ds.attrs['creator_institution'] = dsmd['PrincipalInvestigatorOrganisation']
+        if 'contributor_name' in stmddkeys:
+            ds.attrs["contributor_name"] = np.array(stmdd['contributor_name'].encode("utf-8"))
+        else:
+            ds.attrs["contributor_name"] = np.array(dsmd['contributor_name'].encode("utf-8"))
+        if 'contributor_email' in stmddkeys:
+            ds.attrs["contributor_email"] = np.array(stmdd['contributor_email'].encode("utf-8"))
+        else:
+            ds.attrs["contributor_email"] = np.array(dsmd['contributor_email'].encode("utf-8"))
+        if 'contributor_role' in stmddkeys:
+            ds.attrs["contributor_role"] = np.array(stmdd['contributor_role'].encode("utf-8"))
+        else:
+            ds.attrs["contributor_role"] = np.array(dsmd['contributor_role'].encode("utf-8"))
+        if 'contributor_institution' in stmddkeys:
+            ds.attrs["contributor_institution"] = np.array(stmdd['contributor_institution'].encode("utf-8"))
+        else:
+            ds.attrs["contributor_institution"] = np.array(dsmd['contributor_institution'].encode("utf-8"))
+    else:
+        ds.attrs['creator_name'] = dsmd['PrincipalInvestigator'] 
+        ds.attrs['creator_email'] = dsmd['PrincipalInvestigatorEmail']
+        ds.attrs['creator_url'] = dsmd['PrincipalInvestigatorOrganisationURL']
+        ds.attrs['creator_institution'] = dsmd['PrincipalInvestigatorOrganisation']
+        ds.attrs["contributor_name"] = np.array(dsmd['contributor_name'].encode("utf-8"))
+        ds.attrs["contributor_email"] = np.array(dsmd['contributor_email'].encode("utf-8"))
+        ds.attrs["contributor_institution"] = np.array(dsmd['contributor_institution'].encode("utf-8"))
+        ds.attrs["contributor_role"] = np.array(dsmd['contributor_role'].encode("utf-8"))
 
     # Data center information
     ds.attrs['publisher_name'] = 'Norwegian Meteorological Institute / Arctic Data Centre'
@@ -423,7 +491,11 @@ def add_global_attrs(sttype, ds, dsmd, stmd, dyninfo, kw, bbox=None):
     ds.attrs['MET_Identifier'] =  stmd['data'][0]['id']
 
     # Project linkages
-    ds.attrs['project'] = dsmd['Project']
+    if stmdd:
+        if 'Project' in stmddkeys:
+            ds.attrs['project'] = stmdd['Project']
+        else:
+            ds.attrs['project'] = dsmd['Project']
 
     return(ds)
 
@@ -467,7 +539,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
     
     # Get a list with all stations and some metadata
     
-    sts, sts_dicts = get_stations(frostcfg, pars, log, st_type = est)
+    est = frostcfg['st_type']
+    sts, sts_dicts = get_stations(frostcfg, pars, log)
     
     # STATIONS LOOP
     for s in sts:
@@ -888,7 +961,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             
                             all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
                             # Add global attributes
-                            all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
+                            all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, frostcfg['stations'][s], {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
                             # Set missing values
                             #print(all_ds_station_period)
                             """
