@@ -456,7 +456,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                  'PT12H':'12 hours', 'P1D':' 1 day', 'P1M':'1 month', 
                  'P3M':'3 months', 'P6M':'6 months', 'P1Y':'1 year'} 
     performances = ('A', 'B', 'C', 'D')
-    avoid_var = ['min', 'max', 'mean', 'PT', 'over_time', 'sum', 'P1D']
+    #avoid_var = ['min', 'max', 'mean', 'PT', 'over_time', 'sum', 'P1D']
+    avoid_var = ['min', 'max', 'over_time', 'best_estimate', 'accumulated', 'P1D']
     irradstvars = ['surface_downwelling_shortwave_flux_in_air',
             'surface_upwelling_shortwave_flux_in_air',
             'surface_downwelling_longwave_flux_in_air',
@@ -521,7 +522,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
             #print('>>> ', elements)
             #sys.exit()
             
-            # Loop through ELEMENTS (variables) and create list for extraction
+            # Loop through ELEMENTS (variables) and create list for extraction, irradiance can be handled in a standalone mode if necessary
             dir_elements_resol = {}
             for e in elements:
                 if (est != 'irradiance') and simple and any(a in e for a in avoid_var):
@@ -562,6 +563,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 t_name = ''.join(['time_', t])
                 time_dim[t_name] = ([t_name], dates)
                
+            #sys.exit()
             #print('>>> ', dir_elements_resol)
             for t in resols:
                 # Only handling one observation frequency at the time
@@ -569,8 +571,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     continue
                 
                 vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
+                #print('>>>> ', vars_to_down)
                 if est=='permafrost' and not 'soil_temperature' in vars_to_down:
-                    log.warn('No soil_temperature for this station.')
+                    log.warning('No soil_temperature for this station.')
                     continue
                 if not vars_to_down:
                     log.warning('No data found.')
@@ -623,8 +626,11 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 mynewcolnames = {}
                 for it in mycolnames:
                     itnew = re.sub('pt1h',lambda ele: ele.group(0).upper(),it)
+                    itnew = re.sub('\(-\)','',itnew)
                     mynewcolnames.update({it:itnew})
 
+                #print('>>>> ', mynewcolnames)
+                #sys.exit()
                 df.rename(columns=mynewcolnames, inplace=True)
                 
                 # Parsing time
@@ -695,6 +701,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 df = df.set_index(t_name)
                 # TODO: Not sure what is done below? Could be removed?
                 # Øystein Godøy, METNO/FOU, 2023-03-08 
+                # Seems to be renaming of variables, removing for now as this is done further down as well
+                """
                 for c in df.keys():
                     if c.find('(') > 0 and c.find('(')==c.rfind('('):
                         df.rename(columns={c:c[:c.find('(')]}, inplace=True)
@@ -702,6 +710,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         df.rename(columns={c:c[:c.rfind('(')]}, inplace=True)
                     if c.find("\\") > 0:
                         df.rename(columns={c:c[:c.find("\\")]}, inplace=True)
+                """
                     
                 included = list()
                 excluded = list()
@@ -715,6 +724,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     else:
                         excluded.append(el)
                 if not included and est != "permafrost":
+                    log.warning('No variables to process for some odd reason...')
                     continue
                 for inc in included:
                     try:
@@ -734,6 +744,13 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         big_dictio["coords"][col] = {"dims":col, "data":timos}
                     else:
                         big_dictio["data_vars"][col] = {"dims":t_name, "data":df[col].values}
+                """
+                print('>>>> ',big_dictio['data_vars'].keys())
+                print('grass ', big_dictio['data_vars']['grass_temperature'])
+                print('rh ', big_dictio['data_vars']['relative_humidity'])
+                print('dp ', big_dictio['data_vars']['dew_point_temperature'])
+                print('precip ',big_dictio['data_vars']['accumulated(precipitation_amount)'])
+                """
                 ds_station = xr.Dataset.from_dict(big_dictio)
   
                 voc_list =[]              
@@ -778,8 +795,10 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 mycolnames = list(ds_station.keys())
                 mynewcolnames = {}
                 for it in mycolnames:
-                    itnew = re.sub('mean|sum|PT1H|[\ ()-]','',it)
+                    itnew = re.sub('PT1H|[\ ()-]','',it)
+                    itnew = re.sub('(mean|sum)','\g<1>_',itnew)
                     mynewcolnames.update({it:itnew})
+                #print('>>>> ', mynewcolnames)
                 ds_station = ds_station.rename_vars(mynewcolnames)
 
                 # Specify variable attributes, time is converted further down
@@ -803,7 +822,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             ds_station[mynewcolnames[vname]].attrs['long_name'] = vname.replace('_',' ') 
                         except KeyError:
                             ds_station[mynewcolnames[vname]].attrs['long_name'] = mynewcolnames[vname].replace('_', ' ')
-                        ds_station[mynewcolnames[vname]].attrs['standard_name'] = mynewcolnames[vname]
+                        ds_station[mynewcolnames[vname]].attrs['standard_name'] = re.sub('mean_|sum_','', mynewcolnames[vname])
                         try:
                             ds_station[mynewcolnames[vname]].attrs['units'] = dir_elements_resol[vname][2]['unit']
                         except KeyError:
@@ -812,7 +831,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                         ds_station[mynewcolnames[vname]].attrs['performance_category'] = get_performance_category(dir_elements_resol[vname][1])
                         #ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
                         # Keywords lookup is based on CF standard names
-                        voc_list.append(get_keywords_from_json(mynewcolnames[vname], output['json_path']))
+                        voc_list.append(get_keywords_from_json(re.sub('mean_|sum_','',mynewcolnames[vname]), output['json_path']))
                         check_list.append(''.join(['GCMDSK:', vname]))
 
                 # Replace the dataset totally for permafrost
