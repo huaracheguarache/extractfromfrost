@@ -448,7 +448,7 @@ def add_global_attrs(sttype, ds, dsmd, stmd, stmdd, dyninfo, kw, bbox=None):
             ds.attrs['creator_institution'] = dsmd['PrincipalInvestigatorOrganisation']
         if 'contributor_name' in stmddkeys:
             ds.attrs["contributor_name"] = np.array(stmdd['contributor_name'].encode("utf-8"))
-        else:
+        elif 'contributor_name' in dsmd:
             ds.attrs["contributor_name"] = np.array(dsmd['contributor_name'].encode("utf-8"))
         if 'contributor_email' in stmddkeys:
             ds.attrs["contributor_email"] = np.array(stmdd['contributor_email'].encode("utf-8"))
@@ -456,7 +456,7 @@ def add_global_attrs(sttype, ds, dsmd, stmd, stmdd, dyninfo, kw, bbox=None):
             ds.attrs["contributor_email"] = np.array(dsmd['contributor_email'].encode("utf-8"))
         if 'contributor_role' in stmddkeys:
             ds.attrs["contributor_role"] = np.array(stmdd['contributor_role'].encode("utf-8"))
-        else:
+        elif 'contributor_role' in dsmd:
             ds.attrs["contributor_role"] = np.array(dsmd['contributor_role'].encode("utf-8"))
         if 'contributor_institution' in stmddkeys:
             ds.attrs["contributor_institution"] = np.array(stmdd['contributor_institution'].encode("utf-8"))
@@ -467,10 +467,14 @@ def add_global_attrs(sttype, ds, dsmd, stmd, stmdd, dyninfo, kw, bbox=None):
         ds.attrs['creator_email'] = dsmd['PrincipalInvestigatorEmail']
         ds.attrs['creator_url'] = dsmd['PrincipalInvestigatorOrganisationURL']
         ds.attrs['creator_institution'] = dsmd['PrincipalInvestigatorOrganisation']
-        ds.attrs["contributor_name"] = np.array(dsmd['contributor_name'].encode("utf-8"))
-        ds.attrs["contributor_email"] = np.array(dsmd['contributor_email'].encode("utf-8"))
-        ds.attrs["contributor_institution"] = np.array(dsmd['contributor_institution'].encode("utf-8"))
-        ds.attrs["contributor_role"] = np.array(dsmd['contributor_role'].encode("utf-8"))
+        if 'contributor_name' in dsmd:
+            ds.attrs["contributor_name"] = np.array(dsmd['contributor_name'].encode("utf-8"))
+        if 'contributor_email' in dsmd:
+            ds.attrs["contributor_email"] = np.array(dsmd['contributor_email'].encode("utf-8"))
+        if 'contributor_institution' in dsmd:
+            ds.attrs["contributor_institution"] = np.array(dsmd['contributor_institution'].encode("utf-8"))
+        if 'contributor_role' in dsmd:
+            ds.attrs["contributor_role"] = np.array(dsmd['contributor_role'].encode("utf-8"))
 
     # Data center information
     ds.attrs['publisher_name'] = 'Norwegian Meteorological Institute / Arctic Data Centre'
@@ -977,7 +981,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                             continue
                     #except TypeError:
                     except Exception as e:
-                        log.error("Someting went wrong dumping data to file: %s", e)
+                        log.error("Something went wrong dumping data to file: %s", e)
                         sys.exit()
                         continue
 
