@@ -122,12 +122,10 @@ def parse_arguments():
             help="Start day in the form YYYY-MM-DD", required=False)
     parser.add_argument("-e","--endday",dest="endday",
             help="End day in the form YYYY-MM-DD", required=False)
-    parser.add_argument("-i","--hist",dest="history",
+    parser.add_argument("-a","--allhist",dest="allhistory",
             help="To download all data to date", required=False, action='store_true')
     parser.add_argument("-u","--upt",dest="update",
             help="To update data", required=False, action='store_true')
-    parser.add_argument("-a","--all",dest="stations",
-            help="To download/update data from all stations (not sure this works)", required=False, action='store_true')
     parser.add_argument("-t","--type",dest="type_station",
             help="To select the type of stations; fixed, permafrost, moving or irradiance", required=False)
     args = parser.parse_args()
@@ -226,14 +224,16 @@ def pull_request(site, request, frostcfg, mylog, s = None, data = False):
 
 def get_stations(frostcfg, pars, mylog):
     
-    # Connect and read metadata about the station
+    # Connect and read metadata about the stations
     
-    if pars.stations is False:
+    if frostcfg['stations'] is not None:
+        # Retrieve selected stations identified in cfg
         mylog.info('Retrieving selected '+frostcfg['st_type']+' stations in FROST.')
         stations = frostcfg['stations']       
         myrequest = 'ids='+','.join(stations.keys())
         metadata, msger = pull_request(frostcfg['endpointmeta'], myrequest, frostcfg, mylog)
     else:
+        # Retrieve all stations found
         mylog.info('Retrieving all '+frostcfg['st_type']+' stations in FROST. %s')
         if st_type == 'permafrost':
             myrequest = 'types=SensorSystem&elements=soil_temperature'
@@ -266,7 +266,7 @@ def get_periods(pars, metadata, direc, backwards=None):
     
     today = date.today()
     periods = []
-    if pars.history:
+    if pars.allhistory:
         from_day = datetime.strptime(metadata['validFrom'],'%Y-%m-%dT%H:%M:%S.%fZ')
         to_day = date.today()
         periods = list(gen_periods(from_day, to_day))
