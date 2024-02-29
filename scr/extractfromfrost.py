@@ -341,7 +341,7 @@ Handle data type conversions when writing NetCDF files.
 This is particularly important for publishing in TDS v4
 """
 def set_encoding(ds, fill=-999, time_name = 'time'):
-    
+
     all_encode = {}
 
     for v in list(ds.data_vars):
@@ -356,12 +356,12 @@ def set_encoding(ds, fill=-999, time_name = 'time'):
         all_encode[v] = encode
 
     for v in list(ds.coords):
-        if v == time_name:
-            dtip = 'i4'
         if 'float' in str(ds.coords[v].dtype):
             dtip = 'f4'
         elif 'int' in str(ds.coords[v].dtype):
-            dtip = 'int'
+            dtip = 'i4'
+        if v == time_name:
+            dtip = 'i4'
         encode = {'zlib': True, 'complevel': 9, 'dtype': dtip, }
         all_encode[v] = encode
         
