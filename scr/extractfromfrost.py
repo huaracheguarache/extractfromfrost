@@ -224,7 +224,10 @@ def pull_request(site, request, frostcfg, mylog, s = None, data = False):
 
 def get_stations(frostcfg, pars, mylog):
     
-    # Connect and read metadata about the stations
+    """
+    Connect and read metadata about the stations
+    If configuration asks for a specific layer (:0,:1), this is removed in the request here.
+    """
     
     if frostcfg['stations'] is not None:
         # Retrieve selected stations identified in cfg
@@ -261,6 +264,7 @@ def get_vars(request, frostcfg, mylog, msg):
 
 """
 Not sure on this but believe it is listing periods with actual data.
+Meaqning, dividing the request into segmented requests.
 """
 def get_periods(pars, metadata, direc, backwards=None):
     
@@ -331,7 +335,7 @@ def gen_periods(from_day, to_day):
             yield (starting_point, false_end)
             
 
-# This doesn't woprk entirely as expected, time is not handled...
+# This doesn't work entirely as expected, time is not handled...
 """
 Handle data type conversions when writing NetCDF files.
 This is particularly important for publishing in TDS v4
@@ -354,6 +358,10 @@ def set_encoding(ds, fill=-999, time_name = 'time'):
     for v in list(ds.coords):
         if v == time_name:
             dtip = 'i4'
+        if 'float' in str(ds.coords[v].dtype):
+            dtip = 'f4'
+        elif 'int' in str(ds.coords[v].dtype):
+            dtip = 'int'
         encode = {'zlib': True, 'complevel': 9, 'dtype': dtip, }
         all_encode[v] = encode
         
@@ -412,7 +420,7 @@ def add_global_attrs(sttype, ds, dsmd, stmd, stmdd, dyninfo, kw, bbox=None):
         if 'license' in stmddkeys:
             ds.attrs['license'] = stmdd['license']
         else:
-            ds.attrs['license'] = stmd['license']
+            ds.attrs['license'] = dsmd['license']
 
     # Spatiotemporal information
     ds.attrs['time_coverage_start'] = dyninfo['datasetstart']
@@ -571,8 +579,9 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
         #print(json.dumps(metadata, indent=4))
         #print(metadata['data'][0]['name'])
         
-        #PERIOD LOOP
+        # Identification of temporal segments to extract (monthly)
         periods = get_periods(pars, station_dict, output['destdir']) #this is a generator giving pairs of startday and ending day
+        # Loop through temporal segments, extract and dump data
         for p in periods:
             log.info('Downloading data for period: %s', p)
             # Check that the station has data in the period requested.
@@ -586,9 +595,14 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     log.warning('Station %s doesn\'t contain data as early as this.', s)
                     return
         
-            # Get a list of elements & Connect and read metadata about the variables
+            """
+            Get a list of elements & Connect and read metadata about the variables.
+            If the configuration file contain sourceId per station, the specified sources are extracted, if not only source 0 is extracted.
+            Source is appended to output folder name if different from 0.
+            """
+            # TODO add support for multiple time resolutions...
             mm = ''.join(['Retrieving variables metadata for station: ', s])
-            myrequest_vars = 'sources='+s+'&referencetime='+'/'.join(p)
+            myrequest_vars = 'sources='+s+'&referencetime='+'/'.join(p)+'&timeresolutions='+frostcfg['frequency']
             variables = get_vars(myrequest_vars, frostcfg, log, mm)
             #print('>>>> ', json.dumps(variables['data'], indent=2))
             #sys.exit()
@@ -596,10 +610,10 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 elements = set([i['elementId'] for i in variables['data']])
             else:
                 continue
-            #print('>>> ', elements)
-            #sys.exit()
             
             # Loop through ELEMENTS (variables) and create list for extraction, irradiance can be handled in a standalone mode if necessary
+            # TODO Check this further
+            # legge til vars_to_down her???
             dir_elements_resol = {}
             for e in elements:
                 if (est != 'irradiance') and simple and any(a in e for a in avoid_var):
@@ -621,369 +635,375 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
 
             #print(json.dumps(dir_elements_resol, indent=2))
             #print('>>>> ', times)
-            #sys.exit()
            
             #TIME RESOLUTIONS LOOP
-            # Why two takes on the resols loop? Øystein Godøy, METNO/FOU, 2023-03-08 
-            time_dim = {}
-            for t in resols:
-                vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
-                #print('>>>> ', vars_to_down)
-                if not vars_to_down:
-                    continue
-                dates = pd.date_range(p[0], p[1], freq=freq_dict[t])
-                #print('>>>> ', dates)
-                #print('>>>> ', len(dates))
-                if len(dates) == 0:
-                    continue
-                dates = dates.drop(dates[-1])
-                t_name = ''.join(['time_', t])
-                time_dim[t_name] = ([t_name], dates)
+            # TODO Why two takes on the resols loop? Øystein Godøy, METNO/FOU, 2023-03-08 
+##            time_dim = {}
+##            for t in resols:
+##                # Only handling one observation frequency at the time
+##                if t != frostcfg['frequency']:
+##                    continue
+##                vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
+##                #print('>>>> ', vars_to_down)
+##                if not vars_to_down:
+##                    continue
+##                dates = pd.date_range(p[0], p[1], freq=freq_dict[t])
+##                #print('>>>> ', dates)
+##                #print('>>>> ', len(dates))
+##                if len(dates) == 0:
+##                    continue
+##                dates = dates.drop(dates[-1])
+##                t_name = ''.join(['time_', t])
+##                time_dim[t_name] = ([t_name], dates)
                
+            # Set up the time dimension ++
+            dates = pd.date_range(p[0], p[1], freq=freq_dict[frostcfg['frequency']])
+            dates = dates.drop(dates[-1]) # Means that last time step will be dropped
+            t_name = 'time'
+
+            vars_to_down = [x for x in dir_elements_resol]
+            # TODO for some reason functions are not converted... check
+            if est=='permafrost' and not 'soil_temperature' in vars_to_down:
+                log.warning('No soil_temperature for this station.')
+                continue
+            if not vars_to_down:
+                log.warning('No data found.')
+                continue
+            # check if can be changed, t_name and time_dim
+            #t_name = ''.join(['time_', t])
+
+            # TODO check if this is needed...
+            if not 'all_ds_station' in locals():
+                #all_ds_station = xr.Dataset(coords={t_name:time_dim[t_name]})
+                all_ds_station = xr.Dataset(coords={t_name:dates})
+                #print('>>>> ', all_ds_station.dims)
+        
+            # Parse sourceId if present and create station source to extract
+            if frostcfg['stations'][s] != None:
+                if 'sourceId' in frostcfg['stations'][s]:
+                    mysource = ':'.join([s,str(frostcfg['stations'][s]['sourceId'])])
+                else:
+                    mysource = s
+            else:
+                mysource = s
+            # Create request for observations
+            log.info('Retrieving data for station: %s, and period: %s/%s', s, p[0], p[1])
+            log.info('Variables found for this station and time resolution: %s', vars_to_down)
+            if est == "permafrost":
+                myrequest_data = ('sources='+mysource+'&elements=soil_temperature'
+                    +'&fields='+','.join(frostcfg['fields'])
+                    +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+frostcfg['frequency'])
+            else:
+                # Drop soil_temperature for fixed stations, to be revisited later TODO
+                if 'soil_temperature' in vars_to_down:
+                    vars_to_down.remove('soil_temperature')
+                myrequest_data = ('sources='+mysource+'&elements='
+                    +', '.join(vars_to_down)
+                    +'&fields='+','.join(frostcfg['fields'])
+                    +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+frostcfg['frequency'])
+            #print(myrequest_data)
             #sys.exit()
-            #print('>>> ', dir_elements_resol)
-            for t in resols:
-                # Only handling one observation frequency at the time
-                if t != frostcfg['frequency']:
-                    continue
-                
-                vars_to_down = [x for x in dir_elements_resol if dir_elements_resol[x][0]==t]
-                #print('>>>> ', vars_to_down)
-                if est=='permafrost' and not 'soil_temperature' in vars_to_down:
-                    log.warning('No soil_temperature for this station.')
-                    continue
-                if not vars_to_down:
-                    log.warning('No data found.')
-                    continue
-                t_name = ''.join(['time_', t])
 
-                # TODO check if this is needed...
-                if not 'all_ds_station' in locals():
-                    all_ds_station = xr.Dataset(coords={t_name:time_dim[t_name]})
-                    #print('>>>> ', all_ds_station.dims)
+            # Connect and read observations
+            data, msg_err = pull_request(frostcfg['endpointobs'], 
+                         myrequest_data, frostcfg, mylog, s=mysource, data=True)
+            if msg_err:
+                log.warning('Error experienced downloading data %s', msg_err)
+                continue
+            #print(type(data))
+            #print(data.text)
+            #sys.exit()
+
+            # Read into Pandas DataFrame
+            # Dump to file is only temporarily TODO
+            df = pd.read_csv(StringIO(data.text),header=0,
+                parse_dates=False,
+                index_col=False,na_values=['-'])
+            fp = open('myfile.txt', 'w')
+            fp.write(df.to_string())
+            fp.close()
+            # There are issues with naming conventions between different end points, doing a partial renaming for string matching, full renaming further down
+            mycolnames = df.keys()
+            mynewcolnames = {}
+            for it in mycolnames:
+                itnew = re.sub('pt1h',lambda ele: ele.group(0).upper(),it)
+                itnew = re.sub('\(-\)','',itnew)
+                mynewcolnames.update({it:itnew})
+
+            #print('>>>> ', mynewcolnames)
+            #sys.exit()
+            df.rename(columns=mynewcolnames, inplace=True)
             
-                # Create request for observations
-                log.info('Retrieving data for station: %s, time resolution: %s and period: %s/%s', s, t, p[0],p[1])
-                log.info('Variables found for this station and time resolution: %s', vars_to_down)
-                if est == "permafrost":
-                    myrequest_data = ('sources='+s+'&elements=soil_temperature'
-                        +'&fields='+','.join(frostcfg['fields'])
-                        +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+t)
+            # Parsing time
+            timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
+            mindate = min(timos)
+            maxdate = max(timos)
+            datasetstart = mindate.strftime('%Y-%m-%dT%H:%M:%SZ')
+            datasetend = maxdate.strftime('%Y-%m-%dT%H:%M:%SZ')
+            # String to use in output file name
+            filenamestr = datasetstart[:10]+f'_{maxdate.year}-{maxdate.month:02}-{monthrange(maxdate.year,maxdate.month)[1]}'
+            df.loc[:,t_name] = timos
+            df.drop(['referenceTime'], axis=1, inplace=True)
+            # TODO check, something is wrong...
+
+            # Check if column names has to be modified before this block
+            # Restructure permafrost data
+            # double check why missing levels are pushed through...
+            if est=='permafrost':
+                perma = 'soil_temperature'
+                # Identify which columns that contain soil_temperature
+                cols = df.columns
+                soil_num = [df.columns.get_loc(x) for x in cols if perma in x]
+                # Since every second coumn is soil_temperature and depth, identify depth columns
+                depth_num = [x+1 for x in soil_num]
+                ntime = 0
+                mytimes = []
+                myprofiles = list()
+                mydepths = list()
+                quality_check = []
+                # Loop over time and reshape
+                for i in df.loc[:,t_name]:
+                    mydata = {
+                            'depth':df.iloc[ntime, depth_num].values,
+                            perma:df.iloc[ntime, soil_num].values
+                            }
+                    mytmpdata = pd.DataFrame(mydata).sort_values(by='depth')
+                    if mytmpdata[perma].isnull().all():
+                        quality_check.append(False)
+                    else:
+                        quality_check.append(True)
+                        mydepths = mytmpdata.depth
+                    mytmpdata.fillna(value=myfillvalue, inplace = True)
+                    """
+                    print('>>> ', i, ntime)
+                    print(mytmpdata)
+                    input('Press key to continue')
+                    """
+                    myprofiles.append(mytmpdata.soil_temperature)
+                    mytimes.append(i)
+                    ntime += 1
+                if True in quality_check:   
+                    da_profile = xr.DataArray(myprofiles, 
+                            dims=['profile','depth'],
+                            coords={
+                                'profile':range(1,len(mytimes)+1),
+                                'depth':mydepths})
+
+                    """
+                    dims=[t_name,'depth'],
+                    coords={
+                    t_name:mytimes,
+                    'depth':mydepths})
+                    """
+                
+                df.drop(df.columns[depth_num+soil_num],axis=1,inplace=True)
+                if perma in vars_to_down:
+                    vars_to_down.remove(perma)
+                
+            # SOME CLEANNING
+            df = df.set_index(t_name)
+                
+            included = list()
+            excluded = list()
+            # Not entirely sure on the use case for the code below
+            # Double check...
+            # Øystein Godøy, METNO/FOU, 2023-03-10 
+            cols = df.keys()
+            for el in vars_to_down:
+                if el in cols:
+                    included.append(el)
                 else:
-                    # Drop soil_temperature for fixed stations, to be revisited later TODO
-                    if 'soil_temperature' in vars_to_down:
-                        vars_to_down.remove('soil_temperature')
-                    myrequest_data = ('sources='+s+'&elements='
-                        +', '.join(vars_to_down)
-                        +'&fields='+','.join(frostcfg['fields'])
-                        +'&referencetime='+'/'.join([p[0],p[1]])+'&timeresolutions='+t)
-                #print(myrequest_data)
-                #sys.exit()
+                    excluded.append(el)
+            if not included and est != "permafrost":
+                log.warning('No variables to process for some odd reason...')
+                continue
+            for inc in included:
+                try:
+                    df[inc]
+                except KeyError:
+                    included.remove(inc)
+            df = df[included].copy()                
+            if excluded:
+                for ex in excluded:
+                    df.loc[:,ex] = [myfillvalue]*len(df.index)
 
-                # Connect and read observations
-                data, msg_err = pull_request(frostcfg['endpointobs'], 
-                             myrequest_data, frostcfg, mylog, s=s, data=True)
-                if msg_err:
-                    log.warning('Error experienced downloading data %s', msg_err)
-                    continue
-                #print(type(data))
-                #print(data.text)
-                #sys.exit()
+            # Create Dataset from Dataframe
+            df.reset_index(drop=False, inplace=True)
+            big_dictio = {"coords":{}, "dims":t_name, "data_vars":{}}
+            for col in df.columns:
+                if col == t_name:
+                    big_dictio["coords"][col] = {"dims":col, "data":timos}
+                else:
+                    big_dictio["data_vars"][col] = {"dims":t_name, "data":df[col].values}
+            """
+            print('>>>> ',big_dictio['data_vars'].keys())
+            print('grass ', big_dictio['data_vars']['grass_temperature'])
+            print('rh ', big_dictio['data_vars']['relative_humidity'])
+            print('dp ', big_dictio['data_vars']['dew_point_temperature'])
+            print('precip ',big_dictio['data_vars']['accumulated(precipitation_amount)'])
+            """
+            ds_station = xr.Dataset.from_dict(big_dictio)
 
-                # Read into Pandas DataFrame
-                # Dump to file is only temporarily TODO
-                df = pd.read_csv(StringIO(data.text),header=0,
-                    parse_dates=False,
-                    index_col=False,na_values=['-'])
-                fp = open('myfile.txt', 'w')
-                fp.write(df.to_string())
-                fp.close()
-                # There are issues with naming conventions between different end points, doing a partial renaming for string matching, full renaming further down
-                mycolnames = df.keys()
-                mynewcolnames = {}
-                for it in mycolnames:
-                    itnew = re.sub('pt1h',lambda ele: ele.group(0).upper(),it)
-                    itnew = re.sub('\(-\)','',itnew)
-                    mynewcolnames.update({it:itnew})
+            voc_list =[]              
 
-                #print('>>>> ', mynewcolnames)
-                #sys.exit()
-                df.rename(columns=mynewcolnames, inplace=True)
+            if est=='permafrost' and 'da_profile' in locals():
                 
-                # Parsing time
-                timos = [datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') for x in df['referenceTime']]
-                mindate = min(timos)
-                maxdate = max(timos)
-                datasetstart = mindate.strftime('%Y-%m-%dT%H:%M:%SZ')
-                datasetend = maxdate.strftime('%Y-%m-%dT%H:%M:%SZ')
-                # String to use in output file name
-                filenamestr = datasetstart[:10]+f'_{maxdate.year}-{maxdate.month:02}-{monthrange(maxdate.year,maxdate.month)[1]}'
-                df.loc[:,t_name] = timos
-                df.drop(['referenceTime'], axis=1, inplace=True)
-    
-                # Check if column names has to be modified before this block
-                # Restructure permafrost data
-                if est=='permafrost':
-                    perma = 'soil_temperature'
-                    # Identify which columns that contain soil_temperature
-                    cols = df.columns
-                    soil_num = [df.columns.get_loc(x) for x in cols if perma in x]
-                    # Since every second coumn is soil_temperature and depth, identify depth columns
-                    depth_num = [x+1 for x in soil_num]
-                    ntime = 0
-                    mytimes = []
-                    myprofiles = list()
-                    mydepths = list()
-                    quality_check = []
-                    # Loop over time and reshape
-                    for i in df.loc[:,t_name]:
-                        mydata = {
-                                'depth':df.iloc[ntime, depth_num].values,
-                                perma:df.iloc[ntime, soil_num].values
-                                }
-                        mytmpdata = pd.DataFrame(mydata).sort_values(by='depth')
-                        if mytmpdata[perma].isnull().all():
-                            quality_check.append(False)
-                        else:
-                            quality_check.append(True)
-                            mydepths = mytmpdata.depth
-                        mytmpdata.fillna(value=myfillvalue, inplace = True)
-                        """
-                        print('>>> ', i, ntime)
-                        print(mytmpdata)
-                        input('Press key to continue')
-                        """
-                        myprofiles.append(mytmpdata.soil_temperature)
-                        mytimes.append(i)
-                        ntime += 1
-                    if True in quality_check:   
-                        da_profile = xr.DataArray(myprofiles, 
-                                dims=['profile','depth'],
-                                coords={
-                                    'profile':range(1,len(mytimes)+1),
-                                    'depth':mydepths})
-
-                        """
-                        dims=[t_name,'depth'],
-                        coords={
-                        t_name:mytimes,
-                        'depth':mydepths})
-                        """
-                    
-                    df.drop(df.columns[depth_num+soil_num],axis=1,inplace=True)
-                    if perma in vars_to_down:
-                        vars_to_down.remove(perma)
+                # To include only the soil temperature
+                ds_station = ds_station.drop([v for v in ds_station.data_vars])
                 
-                # SOME CLEANNING
-                df = df.set_index(t_name)
-                # TODO: Not sure what is done below? Could be removed?
-                # Øystein Godøy, METNO/FOU, 2023-03-08 
-                # Seems to be renaming of variables, removing for now as this is done further down as well
-                """
-                for c in df.keys():
-                    if c.find('(') > 0 and c.find('(')==c.rfind('('):
-                        df.rename(columns={c:c[:c.find('(')]}, inplace=True)
-                    elif c.find('(') > 0 and c.find('(') < c.rfind('('):
-                        df.rename(columns={c:c[:c.rfind('(')]}, inplace=True)
-                    if c.find("\\") > 0:
-                        df.rename(columns={c:c[:c.find("\\")]}, inplace=True)
-                """
-                    
-                included = list()
-                excluded = list()
-                # Not entirely sure on the use case for the code below
-                # Double check...
-                # Øystein Godøy, METNO/FOU, 2023-03-10 
-                cols = df.keys()
-                for el in vars_to_down:
-                    if el in cols:
-                        included.append(el)
-                    else:
-                        excluded.append(el)
-                if not included and est != "permafrost":
-                    log.warning('No variables to process for some odd reason...')
-                    continue
-                for inc in included:
-                    try:
-                        df[inc]
-                    except KeyError:
-                        included.remove(inc)
-                df = df[included].copy()                
-                if excluded:
-                    for ex in excluded:
-                        df.loc[:,ex] = [myfillvalue]*len(df.index)
+                ds_station = ds_station.assign_coords(depth=da_profile.depth.values,profile=da_profile.profile.values)
+                ds_station['depth'].attrs['standard_name'] = 'depth'
+                ds_station['depth'].attrs['long_name'] = 'depth below surface'
+                ds_station['depth'].attrs['units'] = 'cm'
+                ds_station['profile'].attrs['long_name'] = 'Number of profiles in the timeseries'
 
-                # Create Dataset from Dataframe
-                df.reset_index(drop=False, inplace=True)
-                big_dictio = {"coords":{}, "dims":t_name, "data_vars":{}}
-                for col in df.columns:
-                    if col == t_name:
-                        big_dictio["coords"][col] = {"dims":col, "data":timos}
-                    else:
-                        big_dictio["data_vars"][col] = {"dims":t_name, "data":df[col].values}
-                """
-                print('>>>> ',big_dictio['data_vars'].keys())
-                print('grass ', big_dictio['data_vars']['grass_temperature'])
-                print('rh ', big_dictio['data_vars']['relative_humidity'])
-                print('dp ', big_dictio['data_vars']['dew_point_temperature'])
-                print('precip ',big_dictio['data_vars']['accumulated(precipitation_amount)'])
-                """
-                ds_station = xr.Dataset.from_dict(big_dictio)
-  
-                voc_list =[]              
-  
-                if est=='permafrost' and 'da_profile' in locals():
-                    
-                    # To include only the soil temperature
-                    ds_station = ds_station.drop([v for v in ds_station.data_vars])
-                    
-                    ds_station = ds_station.assign_coords(depth=da_profile.depth.values,profile=da_profile.profile.values)
-                    ds_station['depth'].attrs['standard_name'] = 'depth'
-                    ds_station['depth'].attrs['long_name'] = 'depth below surface'
-                    ds_station['depth'].attrs['units'] = 'cm'
-                    ds_station['profile'].attrs['long_name'] = 'Number of profiles in the timeseries'
-
-                    #ds_station[perma] = ((t_name, 'depth'), da_profile.values)
-                    ds_station[t_name] = (('profile') , mytimes)
-                    ds_station[perma] = (('profile', 'depth'), da_profile.values)
-                    ds_station[perma].attrs['long_name'] = perma.replace('_', ' ')
-                    ds_station[perma].attrs['standard_name'] = perma
-                    ds_station[perma].attrs['units'] = 'degC'
-                    ds_station[perma].attrs['coordinates'] = t_name
-                    ds_station[perma].attrs['performance_category'] = get_performance_category(dir_elements_resol[perma][1])
-                    #ds_station[perma].attrs['fillvalue'] = float(myfillvalue)
-                    #voc_list.append(get_keywords_from_json(perma, output['json_path']))
-                    var_dims = [item for v in ds_station.data_vars for item in ds_station[v].dims]
-                    for dd in list(ds_station.dims):
-                        if not dd in var_dims:
-                            ds_station = ds_station.drop_dims(dd)
-                            try:
-                                if dd == 'profile':
-                                    continue
-                                if 'time' in dd:
-                                    continue
-                                ds_station = ds_station.drop(dd)
-                            except KeyError:
+                #ds_station[perma] = ((t_name, 'depth'), da_profile.values)
+                ds_station[t_name] = (('profile') , mytimes)
+                ds_station[perma] = (('profile', 'depth'), da_profile.values)
+                ds_station[perma].attrs['long_name'] = perma.replace('_', ' ')
+                ds_station[perma].attrs['standard_name'] = perma
+                ds_station[perma].attrs['units'] = 'degC'
+                ds_station[perma].attrs['coordinates'] = t_name
+                ds_station[perma].attrs['performance_category'] = get_performance_category(dir_elements_resol[perma][1])
+                #ds_station[perma].attrs['fillvalue'] = float(myfillvalue)
+                #voc_list.append(get_keywords_from_json(perma, output['json_path']))
+                var_dims = [item for v in ds_station.data_vars for item in ds_station[v].dims]
+                for dd in list(ds_station.dims):
+                    if not dd in var_dims:
+                        ds_station = ds_station.drop_dims(dd)
+                        try:
+                            if dd == 'profile':
                                 continue
-                    del da_profile
-
-
-                # Modify variable names to remove functions and time sampling
-                mycolnames = list(ds_station.keys())
-                mynewcolnames = {}
-                for it in mycolnames:
-                    itnew = re.sub('PT1H|[\ ()-]','',it)
-                    itnew = re.sub('(mean|sum)','\g<1>_',itnew)
-                    mynewcolnames.update({it:itnew})
-                #print('>>>> ', mynewcolnames)
-                ds_station = ds_station.rename_vars(mynewcolnames)
-
-                # Specify variable attributes, time is converted further down
-                ds_station[t_name].attrs['standard_name'] = 'time'
-                ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[t]
-                ds_station[t_name].attrs['units'] = 'seconds since 1970-01-01T00:00:00+0'
-                check_list = []
-                # Loop through variables and update global keywords attributes as well as variable attributes like units, standard_name, long_name and performance category for measurements
-                #for vname in list(ds_station.data_vars):
-                for vname in mynewcolnames.keys():
-                    if vname in check_list:
-                        continue
-                    else:
-                        ds_station.assign()
-                        try:
-                            """
-                            This doesn't make sense for permafrost at least
-                            val_unit = str(dir_elements_resol[vname][2]['level']['value']) + ' ' + str(dir_elements_resol[vname][2]['level']['unit'])
-                            print(val_unit)
-                            """
-                            ds_station[mynewcolnames[vname]].attrs['long_name'] = vname.replace('_',' ') 
+                            if 'time' in dd:
+                                continue
+                            ds_station = ds_station.drop(dd)
                         except KeyError:
-                            ds_station[mynewcolnames[vname]].attrs['long_name'] = mynewcolnames[vname].replace('_', ' ')
-                        ds_station[mynewcolnames[vname]].attrs['standard_name'] = re.sub('mean_|sum_','', mynewcolnames[vname])
-                        try:
-                            ds_station[mynewcolnames[vname]].attrs['units'] = dir_elements_resol[vname][2]['unit']
-                        except KeyError:
-                            ds_station[mynewcolnames[vname]].attrs['units'] = 'S1'
-                        # Performance category loookup is based on Frost variable names
-                        ds_station[mynewcolnames[vname]].attrs['performance_category'] = get_performance_category(dir_elements_resol[vname][1])
-                        #ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
-                        # Keywords lookup is based on CF standard names
-                        voc_list.append(get_keywords_from_json(re.sub('mean_|sum_','',mynewcolnames[vname]), output['json_path']))
-                        check_list.append(''.join(['GCMDSK:', vname]))
+                            continue
+                del da_profile
 
-                # Replace the dataset totally for permafrost
-                if est == "permafrost":
-                    all_ds_station = ds_station
-                else:
-                    for v in list(ds_station.variables):
-                        if est=='permafrost' and v != perma:
-                            continue
-                        if 'time' in v:
-                            continue
-                        all_ds_station[v] = ds_station[v]
-                del ds_station
-                #print(all_ds_station['time_PT1H'])
-                
-                if msger:
+
+            # Modify variable names to remove functions and time sampling
+            mycolnames = list(ds_station.keys())
+            mynewcolnames = {}
+            for it in mycolnames:
+                itnew = re.sub('PT1H|[\ ()-]','',it)
+                itnew = re.sub('(mean|sum)','\g<1>_',itnew)
+                mynewcolnames.update({it:itnew})
+            #print('>>>> ', mynewcolnames)
+            ds_station = ds_station.rename_vars(mynewcolnames)
+
+            # Specify variable attributes, time is converted further down
+            ds_station[t_name].attrs['standard_name'] = 'time'
+            ds_station[t_name].attrs['long_name'] = 'time with frequency of '+freq_dict_attr[frostcfg['frequency']]
+            ds_station[t_name].attrs['units'] = 'seconds since 1970-01-01T00:00:00+0'
+            check_list = []
+            # Loop through variables and update global keywords attributes as well as variable attributes like units, standard_name, long_name and performance category for measurements
+            #for vname in list(ds_station.data_vars):
+            for vname in mynewcolnames.keys():
+                if vname in check_list:
                     continue
                 else:
-                    pass
-
-                if 'all_ds_station' in  locals():
-                    # Generate BBOX for moving stations
-                    if est == 'moving' and 'latitude' in all_ds_station.data_vars:
-                        lats = np.array(all_ds_station.data_vars['latitude'].values).flatten().astype('float')
-                        lons = np.array(all_ds_station.data_vars['longitude'].values).flatten().astype('float')
-                        bbox = list()
-                        bbox['lat_min'] = np.nanmin(lats)
-                        bbox['lat_max'] = np.nanmax(lats)
-                        bbox['lon_min'] = np.nanmin(lons)
-                        bbox['lon_max'] = np.nanmax(lons)
-                    else:
-                        bbox = None
-                    
+                    ds_station.assign()
                     try:
-                        voc_list = [''.join(['GCMDSK:', x]) for x in voc_list]
-                    except TypeError:
-                        voc_list = None 
-
-                    # Dump to NetCDF in monthly files, continues updates are overwriting the last file.
-                    out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
-                    outputfile = os.path.join(out_folder, s+'_'+filenamestr+'_time_resolution_'+str(t)+'.nc')
-                    if os.path.exists(out_folder):
-                        pass
-                    else:
-                        os.mkdir(out_folder)
+                        """
+                        This doesn't make sense for permafrost at least
+                        val_unit = str(dir_elements_resol[vname][2]['level']['value']) + ' ' + str(dir_elements_resol[vname][2]['level']['unit'])
+                        print(val_unit)
+                        """
+                        ds_station[mynewcolnames[vname]].attrs['long_name'] = vname.replace('_',' ') 
+                    except KeyError:
+                        ds_station[mynewcolnames[vname]].attrs['long_name'] = mynewcolnames[vname].replace('_', ' ')
+                    ds_station[mynewcolnames[vname]].attrs['standard_name'] = re.sub('mean_|sum_','', mynewcolnames[vname])
                     try:
-                        if all_ds_station.data_vars: 
-                            #To pass time to int32, otherwise the netcdf will be written with time in int64
-                            ds_dictio = all_ds_station.to_dict()
-                            alltimes = [x for x in ds_dictio['coords'] if 'time' in x]
-                            for t_c in alltimes:
-                                bad_time = ds_dictio['coords'][t_c]['data']
-                                ds_dictio['coords'][t_c]['data'] = np.array([ti.replace(tzinfo=timezone.utc).timestamp() for ti in bad_time]).astype('i4')
-                            
-                            all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
-                            # Add global attributes
-                            all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, frostcfg['stations'][s], {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
-                            # Set missing values
-                            #print(all_ds_station_period)
-                            """
-                            print(all_ds_station_period['time_PT1H'])
-                            sys.exit()
-                            """
-                            all_ds_station = all_ds_station.fillna(myfillvalue)
-                            # Dump data
-                            all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_name=alltimes[0]))
-                            del all_ds_station
-                            del all_ds_station_period
-                        else:
-                            continue
-                    #except TypeError:
-                    except Exception as e:
-                        log.error("Something went wrong dumping data to file: %s", e)
-                        sys.exit()
+                        ds_station[mynewcolnames[vname]].attrs['units'] = dir_elements_resol[vname][2]['unit']
+                    except KeyError:
+                        ds_station[mynewcolnames[vname]].attrs['units'] = 'S1'
+                    # Performance category loookup is based on Frost variable names
+                    ds_station[mynewcolnames[vname]].attrs['performance_category'] = get_performance_category(dir_elements_resol[vname][1])
+                    #ds_station[vname].attrs['fillvalue'] = float(myfillvalue)
+                    # Keywords lookup is based on CF standard names
+                    voc_list.append(get_keywords_from_json(re.sub('mean_|sum_','',mynewcolnames[vname]), output['json_path']))
+                    check_list.append(''.join(['GCMDSK:', vname]))
+
+            # Replace the dataset totally for permafrost
+            if est == "permafrost":
+                all_ds_station = ds_station
+            else:
+                for v in list(ds_station.variables):
+                    if est=='permafrost' and v != perma:
                         continue
+                    if 'time' in v:
+                        continue
+                    all_ds_station[v] = ds_station[v]
+            del ds_station
+            #print(all_ds_station['time_PT1H'])
+            
+            if msger:
+                continue
+            else:
+                pass
+
+            if 'all_ds_station' in  locals():
+                # Generate BBOX for moving stations
+                if est == 'moving' and 'latitude' in all_ds_station.data_vars:
+                    lats = np.array(all_ds_station.data_vars['latitude'].values).flatten().astype('float')
+                    lons = np.array(all_ds_station.data_vars['longitude'].values).flatten().astype('float')
+                    bbox = list()
+                    bbox['lat_min'] = np.nanmin(lats)
+                    bbox['lat_max'] = np.nanmax(lats)
+                    bbox['lon_min'] = np.nanmin(lons)
+                    bbox['lon_max'] = np.nanmax(lons)
+                else:
+                    bbox = None
+                
+                try:
+                    voc_list = [''.join(['GCMDSK:', x]) for x in voc_list]
+                except TypeError:
+                    voc_list = None 
+
+                # Dump to NetCDF in monthly files, continues updates are overwriting the last file.
+                out_folder = os.path.join(output['destdir'], s, str(datetime.strptime(p[0],'%Y-%m-%d').year))
+                if frostcfg['stations'][s] != None:
+                    if 'sourceId' in frostcfg['stations'][s]:
+                        outputfile = os.path.join(out_folder, mysource.replace(':','-')+'_'+filenamestr+'_time_resolution_'+str(frostcfg['frequency'])+'.nc')
+                    else:
+                        outputfile = os.path.join(out_folder, s+'_'+filenamestr+'_time_resolution_'+str(frostcfg['frequency'])+'.nc')
+                else:
+                    outputfile = os.path.join(out_folder, s+'_'+filenamestr+'_time_resolution_'+str(frostcfg['frequency'])+'.nc')
+                if os.path.exists(out_folder):
+                    pass
+                else:
+                    os.mkdir(out_folder)
+                try:
+                    if all_ds_station.data_vars: 
+                        #To pass time to int32, otherwise the netcdf will be written with time in int64
+                        ds_dictio = all_ds_station.to_dict()
+                        alltimes = [x for x in ds_dictio['coords'] if 'time' in x]
+                        for t_c in alltimes:
+                            bad_time = ds_dictio['coords'][t_c]['data']
+                            ds_dictio['coords'][t_c]['data'] = np.array([ti.replace(tzinfo=timezone.utc).timestamp() for ti in bad_time]).astype('i4')
+                        
+                        all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
+                        # Add global attributes
+                        all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, frostcfg['stations'][s], {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
+                        # Set missing values
+                        #print(all_ds_station_period)
+                        """
+                        print(all_ds_station_period['time_PT1H'])
+                        sys.exit()
+                        """
+                        all_ds_station = all_ds_station.fillna(myfillvalue)
+                        # Dump data
+                        all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_name=alltimes[0]))
+                        del all_ds_station
+                        del all_ds_station_period
+                    else:
+                        continue
+                #except TypeError:
+                except Exception as e:
+                    log.error("Something went wrong dumping data to file: %s", e)
+                    sys.exit()
+                    continue
 
 
 
