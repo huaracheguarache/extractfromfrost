@@ -784,17 +784,10 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                     ntime += 1
                 if True in quality_check:   
                     da_profile = xr.DataArray(myprofiles, 
-                            dims=['profile','depth'],
+                            dims=['time','depth'],
                             coords={
-                                'profile':range(1,len(mytimes)+1),
+                                'time':mytimes,
                                 'depth':mydepths})
-
-                    """
-                    dims=[t_name,'depth'],
-                    coords={
-                    t_name:mytimes,
-                    'depth':mydepths})
-                    """
                 
                 df.drop(df.columns[depth_num+soil_num],axis=1,inplace=True)
                 if perma in vars_to_down:
@@ -851,22 +844,17 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
                 # To include only the soil temperature
                 ds_station = ds_station.drop([v for v in ds_station.data_vars])
                 
-                ds_station = ds_station.assign_coords(depth=da_profile.depth.values,profile=da_profile.profile.values)
+                ds_station = ds_station.assign_coords(depth=da_profile.depth.values,time=da_profile.time.values)
                 ds_station['depth'].attrs['standard_name'] = 'depth'
                 ds_station['depth'].attrs['long_name'] = 'depth below surface'
                 ds_station['depth'].attrs['units'] = 'cm'
-                ds_station['profile'].attrs['long_name'] = 'Number of profiles in the timeseries'
-
-                #ds_station[perma] = ((t_name, 'depth'), da_profile.values)
-                ds_station[t_name] = (('profile') , mytimes)
-                ds_station[perma] = (('profile', 'depth'), da_profile.values)
+                ds_station[t_name] = (('time') , mytimes)
+                ds_station[perma] = (('time', 'depth'), da_profile.values)
                 ds_station[perma].attrs['long_name'] = perma.replace('_', ' ')
                 ds_station[perma].attrs['standard_name'] = perma
                 ds_station[perma].attrs['units'] = 'degC'
                 ds_station[perma].attrs['coordinates'] = t_name
                 ds_station[perma].attrs['performance_category'] = get_performance_category(dir_elements_resol[perma][1])
-                #ds_station[perma].attrs['fillvalue'] = float(myfillvalue)
-                #voc_list.append(get_keywords_from_json(perma, output['json_path']))
                 var_dims = [item for v in ds_station.data_vars for item in ds_station[v].dims]
                 for dd in list(ds_station.dims):
                     if not dd in var_dims:
