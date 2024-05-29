@@ -126,8 +126,6 @@ def parse_arguments():
             help="To download all data to date", required=False, action='store_true')
     parser.add_argument("-u","--upt",dest="update",
             help="To update data", required=False, action='store_true')
-    parser.add_argument("-t","--type",dest="type_station",
-            help="To select the type of stations; fixed, permafrost, moving or irradiance", required=False)
     args = parser.parse_args()
 
     if args.startday is None:
