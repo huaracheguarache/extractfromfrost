@@ -105,7 +105,7 @@ def create_ncml(myncmlfile, aggdir):
                 if myfile.endswith('.nc'):
                     myncds = Dataset(myfile)
                     tmp = myncds.variables['time'][:]
-                    tmpstring = ','.join(str(num) for num in tmp)
+                    tmpstring = ' '.join(str(num) for num in tmp)
                     netcdf = ET.SubElement(aggel, ET.QName('netcdf'))
                     netcdf.set('location',myfile)
                     netcdf.set('coordValue', tmpstring)
