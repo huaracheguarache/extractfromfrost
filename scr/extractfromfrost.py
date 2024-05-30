@@ -509,7 +509,7 @@ def add_global_attrs(sttype, ds, dsmd, stmd, stmdd, dyninfo, kw, bbox=None):
 
     return(ds)
 
-def extractdata(frostcfg, pars, log, stmd, output, simple=True, est='fixed'):
+def extractdata(frostcfg, pars, log, stmd, output, simple=True):
     '''
     Does the actual exrtraction of data
 
@@ -1011,8 +1011,8 @@ if __name__ == '__main__':
 
     # Query data and create netcdf
     mylog.info('Process stations requested in configuration file.')
-    if args.type_station:
-        extractdata(cfgstr['frostcfg'], args, mylog, cfgstr['attributes'], output_dir, est=args.type_station)
-    else:
+    try:
         extractdata(cfgstr['frostcfg'], args, mylog, cfgstr['attributes'], output_dir)
+    except Exception as e:
+        mylog.error('Something failed %s', e)
 
