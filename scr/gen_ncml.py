@@ -109,6 +109,7 @@ def create_ncml(myncmlfile, aggdir):
                     netcdf = ET.SubElement(aggel, ET.QName('netcdf'))
                     netcdf.set('location',myfile)
                     netcdf.set('coordValue', tmpstring)
+                    myncds.close()
 
     # Dump NCML file
     et = ET.ElementTree(root)
