@@ -9,6 +9,8 @@ import logging.handlers
 import lxml.etree as ET
 from netCDF4 import Dataset
 import numpy
+import pytz
+from datetime import datetime
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -94,6 +96,8 @@ def create_ncml(myncmlfile, aggdir):
     scanel.set('suffix','.nc')
     """
     # Set up specific files to include, assuming data stored in years
+    # Set a time stamp into the future...
+    mystarttime = 4000000000 
     for item in sorted(os.listdir(aggdir)):
         curdir = '/'.join([aggdir,item])
         # Check content of yearly folder
@@ -105,11 +109,16 @@ def create_ncml(myncmlfile, aggdir):
                 if myfile.endswith('.nc'):
                     myncds = Dataset(myfile)
                     tmp = myncds.variables['time'][:]
+                    if min(tmp) < mystarttime:
+                        mystarttime = min(tmp)
                     tmpstring = ' '.join(str(num) for num in tmp)
                     netcdf = ET.SubElement(aggel, ET.QName('netcdf'))
                     netcdf.set('location',myfile)
                     netcdf.set('coordValue', tmpstring)
                     myncds.close()
+    mymeta = ET.SubElement(root, ET.QName('attribute'))
+    mymeta.set('name', 'time_coverage_start')
+    mymeta.set('value', datetime.fromtimestamp(mystarttime).astimezone(pytz.timezone('UTC')).strftime("%Y-%m-%dT%H:%M:%S%z"))
 
     # Dump NCML file
     et = ET.ElementTree(root)
