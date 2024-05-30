@@ -94,7 +94,7 @@ def create_ncml(myncmlfile, aggdir):
     scanel.set('suffix','.nc')
     """
     # Set up specific files to include, assuming data stored in years
-    for item in os.listdir(aggdir):
+    for item in sorted(os.listdir(aggdir)):
         curdir = '/'.join([aggdir,item])
         # Check content of yearly folder
         if os.path.isdir(curdir):
