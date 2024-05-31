@@ -146,7 +146,7 @@ def check_netcdf(stdir):
                             missingvars = list()
                             missingvars.append([el for el in myvariables if el not in tmpvars])
                             print('##### ', missingvars)
-                            update_netcdf()
+                            #update_netcdf()
                         except Exception as e:
                             mylog.error('Something failed when updating file.')
                         sys.exit()
