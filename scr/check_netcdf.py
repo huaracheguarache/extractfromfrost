@@ -102,6 +102,23 @@ def traverse_structure(myfolder):
             mylog.error('Something failed.')
             raise
 
+def compare_varlists(curlist, reflist):
+    """
+    Compare the content of 2 lists of variables.
+    """
+    curlist_sorted = sorted(curlist)
+    reflist_sorted = sorted(reflist)
+    if curlist_sorted != reflist_sorted:
+        return(False)
+    else:
+        return(True)
+
+def update_netcdf(missingvars, netcdf):
+    """
+    Add missing variables to CF-NetCDF files. All values are set to missing.
+    """
+
+
 def check_netcdf(stdir):
     """
     Check the individual files in the folder for each station. If some files miss variables that have been added later, these are added to the respective files and set to all missing values. This function works backwards under the assumption that there is a larger probability for variables to be added than removed.
@@ -123,9 +140,15 @@ def check_netcdf(stdir):
                     tmpvars = list(myncds.variables.keys())
                     if len(myvariables) == 0:
                         myvariables = tmpvars
-                    if not bool(set(myvariables).intersection(tmpvars)):
-                        mylog.warning('This file has different variables than others\nChecker: %s\nFile: %s',myvariables,tmpvars)
-                        myvariables = tmpvars
+                    if not compare_varlists(tmpvars, myvariables):
+                        mylog.warning('This file has different variables than others\nReference: %s (%d)\nFile: %s (%d)',myvariables,len(myvariables), tmpvars, len(tmpvars))
+                        try:
+                            missingvars = list()
+                            missingvars.append([el for el in myvariables if el not in tmpvars])
+                            print('##### ', missingvars)
+                            update_netcdf()
+                        except Exception as e:
+                            mylog.error('Something failed when updating file.')
                         sys.exit()
                     else:
                         mylog.info('This file has the same variables as other files, continuing.')
