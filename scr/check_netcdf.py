@@ -29,6 +29,7 @@ from netCDF4 import Dataset
 import numpy
 import pytz
 from datetime import datetime
+import json
 
 def parse_arguments():
     """
@@ -113,11 +114,26 @@ def compare_varlists(curlist, reflist):
     else:
         return(True)
 
-def update_netcdf(missingvars, netcdf):
+def update_netcdf(ncds, missingvar):
     """
     Add missing variables to CF-NetCDF files. All values are set to missing.
     """
 
+    if missingvar['dtype'] == 'int32':
+        misval = ncds.createVariable(varname=missingvar['name'], datatype=missingvar['dtype'], dimensions='time', fill_value=int(missingvar['missing']))
+    else:
+        misval = ncds.createVariable(varname=missingvar['name'], datatype=missingvar['dtype'], dimensions='time', fill_value=float(missingvar['missing']))
+    misval.standard_name = missingvar['stdname']
+    misval.long_name = missingvar['lngname']
+    misval.units = missingvar['units']
+    if missingvar['dtype'] == 'int32':
+        tmp = numpy.full(shape=ncds['time'].size, fill_value=missingvar['missing'], dtype=numpy.int)
+        misval = tmp
+    else:
+        tmp = numpy.full(shape=ncds['time'].size, fill_value=missingvar['missing'], dtype=numpy.float)
+        misval = tmp
+
+    return
 
 def check_netcdf(stdir):
     """
@@ -125,10 +141,11 @@ def check_netcdf(stdir):
     """
 
     # Loop through folder
+    missingvars = list()
+    myvariables = dict()
     for item in sorted(os.listdir(stdir), reverse=True):
         # Check content of yearly folder
         curdir = '/'.join([stdir,item])
-        myvariables = list()
         if os.path.isdir(curdir):
             # Process files for each year and extract list of variables
             for item2 in sorted(os.listdir(curdir), reverse=True):
@@ -136,23 +153,47 @@ def check_netcdf(stdir):
                 # Only process NetCDF files and check content
                 if myfile.endswith('.nc'):
                     mylog.info('Processing file: %s', myfile)
-                    myncds = Dataset(myfile)
+                    myncds = Dataset(myfile, 'r+')
                     tmpvars = list(myncds.variables.keys())
-                    if len(myvariables) == 0:
-                        myvariables = tmpvars
-                    if not compare_varlists(tmpvars, myvariables):
-                        mylog.warning('This file has different variables than others\nReference: %s (%d)\nFile: %s (%d)',myvariables,len(myvariables), tmpvars, len(tmpvars))
-                        try:
-                            missingvars = list()
-                            missingvars.append([el for el in myvariables if el not in tmpvars])
-                            print('##### ', missingvars)
-                            #update_netcdf()
-                        except Exception as e:
-                            mylog.error('Something failed when updating file.')
+                    #print(myncds.variables['time'])
+                    if len(list(myvariables.keys())) == 0:
+                        for el in tmpvars:
+                            tmpdict = dict()
+                            tmpdict['name'] = el 
+                            tmpdict['stdname'] = myncds[el].getncattr('standard_name') 
+                            tmpdict['lngname'] = myncds[el].getncattr('long_name')
+                            tmpdict['units'] = myncds[el].getncattr('units')
+                            tmpdict['dtype'] = str(myncds[el].dtype)
+                            if el != 'time':
+                                tmpdict['missing'] = str(myncds[el]._FillValue)
+                            else:
+                                tmpdict['missing'] = ""
+                            myvariables[el] = tmpdict
+                            """
+                            print(json.dumps(myvariables, indent=2))
+                            print(len(myvariables.keys()))
+                            """
+                        continue
+                    """
+                    print('#### ',myvariables, len(myvariables))
+                    print('#### ',tmpvars, len(tmpvars))
+                    print('#### ', compare_varlists(tmpvars, myvariables))
+                    if len(tmpvars) != len(myvariables):
                         sys.exit()
+                    """
+                    if compare_varlists(tmpvars, list(myvariables.keys())) == False:
+                        mylog.warning('This file has different variables than others\nReference: %s (%d)\nFile: %s (%d)',list(myvariables.keys()),len(list(myvariables.keys())), tmpvars, len(tmpvars))
+                        for el in list(myvariables.keys()):
+                            # If variable is missing add it...
+                            if el not in tmpvars:
+                                try:
+                                    update_netcdf(myncds, myvariables[el])
+                                except Exception as e:
+                                    mylog.error('Something failed when updating file.')
                     else:
                         mylog.info('This file has the same variables as other files, continuing.')
                     myncds.close()
+        #print('lats\n#### ', missingvars)
 
 if __name__ == '__main__':
     

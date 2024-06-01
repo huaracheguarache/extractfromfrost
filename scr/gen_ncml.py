@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Generate NCML files for aggregation of CF-NetCDF files containing data from Frost.
+"""
+__author__ = "Øystein Godøy"
+#__copyright__ = "Copyright Info"
+__credits__ = ["Øystein Godøy",]
+__license__ = """
+    This file is part of extractfromfrost.
+
+    This is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+    This file is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along with Foobar. If not, see <https://www.gnu.org/licenses/>. 
+    """
+__version__ = "0.0.0"
+__maintainer__ = "Øystein Godøy"
+__email__ = "steingod@met.no"
 
 import os
 import sys
