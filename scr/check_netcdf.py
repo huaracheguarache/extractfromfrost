@@ -138,11 +138,17 @@ def update_netcdf(ncds, missingvar):
 def check_netcdf(stdir):
     """
     Check the individual files in the folder for each station. If some files miss variables that have been added later, these are added to the respective files and set to all missing values. This function works backwards under the assumption that there is a larger probability for variables to be added than removed.
+
+    If featureTyppe is timeSeries it is assumed that all variables only have 1 dimension (time).
+    If featureType is timeSeeriesProfile it is assumed that variables have 2 dimensions (time and depth). Depth can be in different units.
     """
 
+    # vertical coordinates used...
+    myvertcoord = ['depth','height']
     # Loop through folder
     missingvars = list()
     myvariables = dict()
+    myzsize = None
     for item in sorted(os.listdir(stdir), reverse=True):
         # Check content of yearly folder
         curdir = '/'.join([stdir,item])
@@ -155,7 +161,28 @@ def check_netcdf(stdir):
                     mylog.info('Processing file: %s', myfile)
                     myncds = Dataset(myfile, 'r+')
                     tmpvars = list(myncds.variables.keys())
-                    #print(myncds.variables['time'])
+                    # TODO fix this!!
+                    try:
+                        featureType = myncds.getncattr('featureType')
+                    except Exception as e:
+                        mylog.error('This file does not have featureType.')
+                        raise
+                    if featureType == 'timeSeriesProfile':
+                        if 'soil_temperature' in tmpvars:
+                            mydim = myncds['soil_temperature'].dimensions
+                            if len(mydim) > 2:
+                                mylog.error('Cannot handle more than 2 dimensions.')
+                                raise
+                            for i in mydim:
+                                if i in myvertcoord:
+                                    myvert = i
+                            if not myzsize:
+                                myzsize = myncds[i].size
+                            else:
+                                if myncds[i].size != myzsize:
+                                    mylog.error('This sequence of tiles have varying vertical levels preventing aggregation in time.')
+                                    raise Exception('This sequence of tiles have varying vertical levels preventing aggregation in time.')
+                        print(i, myzsize)
                     if len(list(myvariables.keys())) == 0:
                         for el in tmpvars:
                             tmpdict = dict()
