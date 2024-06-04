@@ -114,7 +114,7 @@ def compare_varlists(curlist, reflist):
     else:
         return(True)
 
-def update_netcdf(ncds, missingvar):
+def update_variables(ncds, missingvar):
     """
     Add missing variables to CF-NetCDF files. All values are set to missing.
     """
@@ -127,11 +127,69 @@ def update_netcdf(ncds, missingvar):
     misval.long_name = missingvar['lngname']
     misval.units = missingvar['units']
     if missingvar['dtype'] == 'int32':
-        tmp = numpy.full(shape=ncds['time'].size, fill_value=missingvar['missing'], dtype=numpy.int)
+        tmp = numpy.full(shape=ncds['time'].size, fill_value=missingvar['missing'], dtype=int)
         misval = tmp
     else:
-        tmp = numpy.full(shape=ncds['time'].size, fill_value=missingvar['missing'], dtype=numpy.float)
+        tmp = numpy.full(shape=ncds['time'].size, fill_value=missingvar['missing'], dtype=float)
         misval = tmp
+
+    return
+
+def update_vertlev(ncds, vertcoord, vertvalues):
+    """
+    Check vertical levels and make these consistent across files.
+    """
+
+    # List variables that typically are presented as profiles
+    myvars = ['soil_temperature']
+    mylog.info('Now in update_vertlev')
+
+    myvertvalues = ncds[vertcoord][:]
+    mydata = dict()
+    mytimedim = ncds['time'].size
+    print('mytimedim ', mytimedim)
+    print('myvertvalues ',myvertvalues)
+    print('vertvalues ',vertvalues)
+    """
+    mytimevalues = ncds['time'][:]
+    print(mytimevalues)
+    """
+    for el in myvars:
+        print(el)
+        tmparr = ncds[el][:]
+        # Create temporary array
+        #mydata[el] = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=ncds[el]._FillValue, dtype=float)
+        tmparr2 = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=ncds[el]._FillValue, dtype=float)
+        # Fill temporary array
+        for i in range(0,mytimedim):
+            for j in range(0,len(vertvalues)):
+                print(i, j)
+                #print(vertvalues[j])
+                #print(myvertvalues.index(j))
+                #tmparr2[i,j] = tmparr[i,numpy.where(numpy.isclose(myvertvalues,[j]))[0]]
+                myindex = numpy.where(numpy.isclose(myvertvalues,[vertvalues[j]]))
+                print('>>> ', j, vertvalues[j])
+                print('>>> ', myindex[0])
+                print('>>> ', len(myindex[0]))
+                if len(myindex[0]) != 0:
+                    print('>>> ', vertvalues[j], myindex[0][0],tmparr[i][myindex[0][0]]) 
+                    tmparr2[i][j] = tmparr[i][myindex[0][0]]
+        mydata[el] = tmparr2
+
+    print(tmparr2)
+    print(mydata)
+
+    """
+    print(type(myvertvalues))
+    print(myvertvalues.ndim)
+    print(myvertvalues[0])
+    mydata = ncds['soil_temperature'].dimensions)
+    print(numpy.ma.getmask(myvertvalues))
+    print(type(numpy.ma.getdata(myvertvalues)))
+    print((numpy.ma.getdata(myvertvalues)))
+    """
+
+    sys.exit()
 
     return
 
@@ -167,7 +225,7 @@ def check_netcdf(stdir):
                         featureType = myncds.getncattr('featureType')
                     except Exception as e:
                         mylog.error('This file does not have featureType.')
-                        raise
+                        raise(e)
                     if featureType == 'timeSeriesProfile':
                         if 'soil_temperature' in tmpvars:
                             mydim = myncds['soil_temperature'].dimensions
@@ -185,8 +243,11 @@ def check_netcdf(stdir):
                             if myncds[myvert].size != myzsize:
                                 print(myvertvalues)
                                 print(myncds[myvert][:])
-                                mylog.error('This sequence of tiles have varying vertical levels preventing aggregation in time.\n%d\n%d', myncds[myvert].size, myzsize)
-                                raise Exception('This sequence of tiles have varying vertical levels preventing aggregation in time.')
+                                mylog.warning('This sequence of tiles have varying vertical levels preventing aggregation in time.\n%d\n%d', myncds[myvert].size, myzsize)
+                                try:
+                                    update_vertlev(myncds, myvert, myvertvalues)
+                                except Exception as e:
+                                    raise Exception('This sequence of tiles have varying vertical levels preventing aggregation in time.')
                         print(myvert, myzsize)
                     if len(list(myvariables.keys())) == 0:
                         for el in tmpvars:
@@ -219,7 +280,7 @@ def check_netcdf(stdir):
                             # If variable is missing add it...
                             if el not in tmpvars:
                                 try:
-                                    update_netcdf(myncds, myvariables[el])
+                                    update_variables(myncds, myvariables[el])
                                 except Exception as e:
                                     mylog.error('Something failed when updating file.')
                     else:
