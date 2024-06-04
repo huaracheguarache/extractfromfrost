@@ -155,28 +155,20 @@ def update_vertlev(ncds, vertcoord, vertvalues):
     print(mytimevalues)
     """
     for el in myvars:
-        print(el)
-        tmparr = ncds[el][:]
+        tmparr = numpy.ma.getdata(ncds[el][:])
         # Create temporary array
-        #mydata[el] = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=ncds[el]._FillValue, dtype=float)
         tmparr2 = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=ncds[el]._FillValue, dtype=float)
         # Fill temporary array
         for i in range(0,mytimedim):
             for j in range(0,len(vertvalues)):
-                print(i, j)
-                #print(vertvalues[j])
-                #print(myvertvalues.index(j))
-                #tmparr2[i,j] = tmparr[i,numpy.where(numpy.isclose(myvertvalues,[j]))[0]]
                 myindex = numpy.where(numpy.isclose(myvertvalues,[vertvalues[j]]))
-                print('>>> ', j, vertvalues[j])
-                print('>>> ', myindex[0])
-                print('>>> ', len(myindex[0]))
                 if len(myindex[0]) != 0:
-                    print('>>> ', vertvalues[j], myindex[0][0],tmparr[i][myindex[0][0]]) 
                     tmparr2[i][j] = tmparr[i][myindex[0][0]]
         mydata[el] = tmparr2
 
     print(tmparr2)
+    print(vertvalues)
+    print(tmparr2[0])
     print(mydata)
 
     """
