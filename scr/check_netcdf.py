@@ -149,6 +149,7 @@ def check_netcdf(stdir):
     missingvars = list()
     myvariables = dict()
     myzsize = None
+    myvertvalues = list()
     for item in sorted(os.listdir(stdir), reverse=True):
         # Check content of yearly folder
         curdir = '/'.join([stdir,item])
@@ -174,15 +175,19 @@ def check_netcdf(stdir):
                                 mylog.error('Cannot handle more than 2 dimensions.')
                                 raise
                             for i in mydim:
+                                print(i)
                                 if i in myvertcoord:
                                     myvert = i
-                            if not myzsize:
-                                myzsize = myncds[i].size
-                            else:
-                                if myncds[i].size != myzsize:
-                                    mylog.error('This sequence of tiles have varying vertical levels preventing aggregation in time.')
-                                    raise Exception('This sequence of tiles have varying vertical levels preventing aggregation in time.')
-                        print(i, myzsize)
+                        if not myzsize:
+                            myzsize = myncds[myvert].size
+                            myvertvalues = myncds[myvert][:]
+                        else:
+                            if myncds[myvert].size != myzsize:
+                                print(myvertvalues)
+                                print(myncds[myvert][:])
+                                mylog.error('This sequence of tiles have varying vertical levels preventing aggregation in time.\n%d\n%d', myncds[myvert].size, myzsize)
+                                raise Exception('This sequence of tiles have varying vertical levels preventing aggregation in time.')
+                        print(myvert, myzsize)
                     if len(list(myvariables.keys())) == 0:
                         for el in tmpvars:
                             tmpdict = dict()
