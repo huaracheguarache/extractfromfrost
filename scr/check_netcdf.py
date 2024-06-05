@@ -94,7 +94,7 @@ def traverse_structure(myfolder):
         if not os.path.isdir(mydir):
             continue
         if not item.startswith('SN'):
-            mylog.warn('Apparently this is not a station folder.')
+            mylog.warning('Apparently this is not a station folder.')
             continue
         mylog.info('Processing folder: %s', mydir)
         try:
@@ -135,7 +135,7 @@ def update_variables(ncds, missingvar):
 
     return
 
-def update_vertlev(ncds, vertcoord, vertvalues):
+def update_vertlev(myfile, ncds, vertcoord, vertvalues):
     """
     Check vertical levels and make these consistent across files.
     """
@@ -144,16 +144,33 @@ def update_vertlev(ncds, vertcoord, vertvalues):
     myvars = ['soil_temperature']
     mylog.info('Now in update_vertlev')
 
+    # Create new dataset
+    try:
+        newncds = Dataset(myfile, mode='w', diskless=True, Persist=True)
+    except Exception as e:
+        mylog.error('Could not create new diskless dataset: %s', e)
+        raise
+    # Create dimensions
+    newncds.createDimension('time', size=ncds['time'].size)
+    newncds.createDimension(vertcoord, size=len(vertvalues))
+    # Create variables
+    newtime = newncds.createVariable('time', datatype='i4', dimensions=('time'))
+    newtime.standard_name = ncds['time'].standard_name
+    newtime.long_name = ncds['time'].long_name
+    newtime.units = ncds['time'].units
+    newncds.variables['time'][:] = ncds['time'][:]
+    newdepth = newncds.createVariable(vertcoord, datatype='f4', dimensions=(vertcoord), fill_value=ncds[vertcoord]._FillValue)
+    newdepth.standard_name = ncds[vertcoord].standard_name
+    newdepth.long_name = ncds[vertcoord].long_name
+    newdepth.units = ncds[vertcoord].units
+    newdepth.coordinates = ncds[vertcoord].coordinates
+    newdepth.performance_category = ncds[vertcoord].performance_category
+    newncds.variables[vertcoord][:] = vertvalues[:]
+    # Add global attributes
+
     myvertvalues = ncds[vertcoord][:]
     mydata = dict()
     mytimedim = ncds['time'].size
-    print('mytimedim ', mytimedim)
-    print('myvertvalues ',myvertvalues)
-    print('vertvalues ',vertvalues)
-    """
-    mytimevalues = ncds['time'][:]
-    print(mytimevalues)
-    """
     for el in myvars:
         tmparr = numpy.ma.getdata(ncds[el][:])
         # Create temporary array
@@ -165,11 +182,16 @@ def update_vertlev(ncds, vertcoord, vertvalues):
                 if len(myindex[0]) != 0:
                     tmparr2[i][j] = tmparr[i][myindex[0][0]]
         mydata[el] = tmparr2
+        newvar = newncds.createVariable(el, datatype = ncds[el].dtype,dimensions=('time',vertcoord))
+    print(ncds)
+    print(newncds)
 
+    """
     print(tmparr2)
     print(vertvalues)
     print(tmparr2[0])
     print(mydata)
+    """
 
     """
     print(type(myvertvalues))
@@ -237,7 +259,7 @@ def check_netcdf(stdir):
                                 print(myncds[myvert][:])
                                 mylog.warning('This sequence of tiles have varying vertical levels preventing aggregation in time.\n%d\n%d', myncds[myvert].size, myzsize)
                                 try:
-                                    update_vertlev(myncds, myvert, myvertvalues)
+                                    update_vertlev(myfile, myncds, myvert, myvertvalues)
                                 except Exception as e:
                                     raise Exception('This sequence of tiles have varying vertical levels preventing aggregation in time.')
                         print(myvert, myzsize)
@@ -278,6 +300,7 @@ def check_netcdf(stdir):
                     else:
                         mylog.info('This file has the same variables as other files, continuing.')
                     myncds.close()
+                    #sys.exit() # while testing
         #print('lats\n#### ', missingvars)
 
 if __name__ == '__main__':
