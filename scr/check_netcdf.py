@@ -138,15 +138,21 @@ def update_variables(ncds, missingvar):
 def update_vertlev(myfile, ncds, vertcoord, vertvalues):
     """
     Check vertical levels and make these consistent across files.
+    Since this implies changing dimensions, a new file has to be created and the old deleted.
     """
 
     # List variables that typically are presented as profiles
     myvars = ['soil_temperature']
-    mylog.info('Now in update_vertlev')
+    mylog.info('This file need redefinition of the vertical dimension')
 
-    # Create new dataset
+    # Create new dataset, bail out if not in overwrite mode
     try:
-        newncds = Dataset(myfile, mode='w', diskless=True, Persist=True)
+        if args.overwrite:
+            newncds = Dataset(myfile, mode='w', diskless=True, persist=True)
+        else:
+            mylog.error('To perform this action overwrite is needed...')
+            raise('To perform this action overwrite is needed...')
+        #newncds = Dataset('myfile.nc', mode='w')
     except Exception as e:
         mylog.error('Could not create new diskless dataset: %s', e)
         raise
@@ -163,10 +169,10 @@ def update_vertlev(myfile, ncds, vertcoord, vertvalues):
     newdepth.standard_name = ncds[vertcoord].standard_name
     newdepth.long_name = ncds[vertcoord].long_name
     newdepth.units = ncds[vertcoord].units
-    newdepth.coordinates = ncds[vertcoord].coordinates
-    newdepth.performance_category = ncds[vertcoord].performance_category
     newncds.variables[vertcoord][:] = vertvalues[:]
     # Add global attributes
+    for myattr in ncds.ncattrs():
+        newncds.setncattr(myattr,ncds.getncattr(myattr))
 
     myvertvalues = ncds[vertcoord][:]
     mydata = dict()
@@ -174,7 +180,13 @@ def update_vertlev(myfile, ncds, vertcoord, vertvalues):
     for el in myvars:
         tmparr = numpy.ma.getdata(ncds[el][:])
         # Create temporary array
-        tmparr2 = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=ncds[el]._FillValue, dtype=float)
+        print('So far so good...')
+        if ncds[el].dtype == 'float32':
+            print('So far so good...')
+            tmparr2 = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=ncds[el]._FillValue, dtype='f4')
+            print('So far so good...')
+        else:
+            tmparr2 = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=int(ncds[el]._FillValue), dtype='i2')
         # Fill temporary array
         for i in range(0,mytimedim):
             for j in range(0,len(vertvalues)):
@@ -182,26 +194,25 @@ def update_vertlev(myfile, ncds, vertcoord, vertvalues):
                 if len(myindex[0]) != 0:
                     tmparr2[i][j] = tmparr[i][myindex[0][0]]
         mydata[el] = tmparr2
-        newvar = newncds.createVariable(el, datatype = ncds[el].dtype,dimensions=('time',vertcoord))
-    print(ncds)
-    print(newncds)
+        newvar = newncds.createVariable(el, datatype = ncds[el].dtype,dimensions=('time',vertcoord), fill_value=ncds[el]._FillValue)
+        newvar.long_name = ncds[el].long_name
+        newvar.standard_name = ncds[el].standard_name
+        newvar.units = ncds[el].units
+        newvar.coordinates = ncds[el].coordinates
+        newvar.performance_category = ncds[el].performance_category
+        newvar[:] = tmparr2[:]
 
-    """
-    print(tmparr2)
-    print(vertvalues)
-    print(tmparr2[0])
-    print(mydata)
-    """
-
-    """
-    print(type(myvertvalues))
-    print(myvertvalues.ndim)
-    print(myvertvalues[0])
-    mydata = ncds['soil_temperature'].dimensions)
-    print(numpy.ma.getmask(myvertvalues))
-    print(type(numpy.ma.getdata(myvertvalues)))
-    print((numpy.ma.getdata(myvertvalues)))
-    """
+    # First close the original file, then dump the diskless file to disk
+    try:
+        ncds.close()
+    except Exception as e:
+        mylog.error('Could not close file: %s', e)
+        raise
+    try:
+        newncds.close()
+    except Exception as e:
+        mylog.error('Could not close file: %s', e)
+        raise
 
     sys.exit()
 
@@ -255,8 +266,6 @@ def check_netcdf(stdir):
                             myvertvalues = myncds[myvert][:]
                         else:
                             if myncds[myvert].size != myzsize:
-                                print(myvertvalues)
-                                print(myncds[myvert][:])
                                 mylog.warning('This sequence of tiles have varying vertical levels preventing aggregation in time.\n%d\n%d', myncds[myvert].size, myzsize)
                                 try:
                                     update_vertlev(myfile, myncds, myvert, myvertvalues)
@@ -299,7 +308,7 @@ def check_netcdf(stdir):
                                     mylog.error('Something failed when updating file.')
                     else:
                         mylog.info('This file has the same variables as other files, continuing.')
-                    myncds.close()
+                    myncds.close() # Check first that it is open...
                     #sys.exit() # while testing
         #print('lats\n#### ', missingvars)
 
