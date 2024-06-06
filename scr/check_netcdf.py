@@ -135,20 +135,21 @@ def update_variables(ncds, missingvar):
 
     return
 
-def update_vertlev(myfile, ncds, vertcoord, vertvalues):
+def update_vertlev(orgfile, ncds, vertcoord, vertvalues):
     """
     Check vertical levels and make these consistent across files.
-    Since this implies changing dimensions, a new file has to be created and the old deleted.
+    Since this implies changing dimensions, a new file has to be created and the old overwritten subsequently.
     """
 
     # List variables that typically are presented as profiles
     myvars = ['soil_temperature']
     mylog.info('This file need redefinition of the vertical dimension')
 
-    # Create new dataset, bail out if not in overwrite mode
+    # Create new dataset
+    newfile = orgfile+'-updated'
     try:
         if args.overwrite:
-            newncds = Dataset(myfile, mode='w', diskless=True, persist=True)
+            newncds = Dataset(newfile, mode='w', diskless=True, persist=True)
         else:
             mylog.error('To perform this action overwrite is needed...')
             raise('To perform this action overwrite is needed...')
@@ -180,11 +181,8 @@ def update_vertlev(myfile, ncds, vertcoord, vertvalues):
     for el in myvars:
         tmparr = numpy.ma.getdata(ncds[el][:])
         # Create temporary array
-        print('So far so good...')
         if ncds[el].dtype == 'float32':
-            print('So far so good...')
             tmparr2 = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=ncds[el]._FillValue, dtype='f4')
-            print('So far so good...')
         else:
             tmparr2 = numpy.full(shape=(mytimedim,len(vertvalues)), fill_value=int(ncds[el]._FillValue), dtype='i2')
         # Fill temporary array
@@ -202,21 +200,13 @@ def update_vertlev(myfile, ncds, vertcoord, vertvalues):
         newvar.performance_category = ncds[el].performance_category
         newvar[:] = tmparr2[:]
 
-    # First close the original file, then dump the diskless file to disk
-    try:
-        ncds.close()
-    except Exception as e:
-        mylog.error('Could not close file: %s', e)
-        raise
     try:
         newncds.close()
     except Exception as e:
         mylog.error('Could not close file: %s', e)
         raise
 
-    sys.exit()
-
-    return
+    return(newfile)
 
 def check_netcdf(stdir):
     """
@@ -245,7 +235,7 @@ def check_netcdf(stdir):
                     mylog.info('Processing file: %s', myfile)
                     myncds = Dataset(myfile, 'r+')
                     tmpvars = list(myncds.variables.keys())
-                    # TODO fix this!!
+                    tmpname = None
                     try:
                         featureType = myncds.getncattr('featureType')
                     except Exception as e:
@@ -258,7 +248,6 @@ def check_netcdf(stdir):
                                 mylog.error('Cannot handle more than 2 dimensions.')
                                 raise
                             for i in mydim:
-                                print(i)
                                 if i in myvertcoord:
                                     myvert = i
                         if not myzsize:
@@ -268,10 +257,10 @@ def check_netcdf(stdir):
                             if myncds[myvert].size != myzsize:
                                 mylog.warning('This sequence of tiles have varying vertical levels preventing aggregation in time.\n%d\n%d', myncds[myvert].size, myzsize)
                                 try:
-                                    update_vertlev(myfile, myncds, myvert, myvertvalues)
+                                    tmpname = update_vertlev(myfile, myncds, myvert, myvertvalues)
+                                    print('>>> ', tmpname)
                                 except Exception as e:
                                     raise Exception('This sequence of tiles have varying vertical levels preventing aggregation in time.')
-                        print(myvert, myzsize)
                     if len(list(myvariables.keys())) == 0:
                         for el in tmpvars:
                             tmpdict = dict()
@@ -285,18 +274,7 @@ def check_netcdf(stdir):
                             else:
                                 tmpdict['missing'] = ""
                             myvariables[el] = tmpdict
-                            """
-                            print(json.dumps(myvariables, indent=2))
-                            print(len(myvariables.keys()))
-                            """
                         continue
-                    """
-                    print('#### ',myvariables, len(myvariables))
-                    print('#### ',tmpvars, len(tmpvars))
-                    print('#### ', compare_varlists(tmpvars, myvariables))
-                    if len(tmpvars) != len(myvariables):
-                        sys.exit()
-                    """
                     if compare_varlists(tmpvars, list(myvariables.keys())) == False:
                         mylog.warning('This file has different variables than others\nReference: %s (%d)\nFile: %s (%d)',list(myvariables.keys()),len(list(myvariables.keys())), tmpvars, len(tmpvars))
                         for el in list(myvariables.keys()):
@@ -308,9 +286,21 @@ def check_netcdf(stdir):
                                     mylog.error('Something failed when updating file.')
                     else:
                         mylog.info('This file has the same variables as other files, continuing.')
-                    myncds.close() # Check first that it is open...
-                    #sys.exit() # while testing
-        #print('lats\n#### ', missingvars)
+                    try:
+                        myncds.close() 
+                    except Exception as e:
+                        mylog.error('Could not close the original file: %s', e)
+                        raise(e)
+                    if tmpname and args.overwrite:
+                        """
+                        A new file has been generated as dimensions of the original file has been modified. Now the new file will replace the original provided overwrite mode is activated.
+                        """
+                        mylog.info('A new file has been generated, will replace the original')
+                        try:
+                            os.replace(tmpname, myfile)
+                        except Exception as e:
+                            mylog.error('Could not replace original file: %s', e)
+                            raise(e)
 
 if __name__ == '__main__':
     
