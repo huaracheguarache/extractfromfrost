@@ -752,7 +752,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
                 # Identify which columns that contain soil_temperature
                 cols = df.columns
                 soil_num = [df.columns.get_loc(x) for x in cols if perma in x]
-                # Since every second coumn is soil_temperature and depth, identify depth columns
+                # Since every second column is soil_temperature and depth, identify depth columns
                 depth_num = [x+1 for x in soil_num]
                 ntime = 0
                 mytimes = []
@@ -760,32 +760,66 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
                 mydepths = list()
                 quality_check = []
                 # Loop over time and reshape
+                # TODO fix match on depths and values...
                 for i in df.loc[:,t_name]:
                     mydata = {
                             'depth':df.iloc[ntime, depth_num].values,
                             perma:df.iloc[ntime, soil_num].values
                             }
                     mytmpdata = pd.DataFrame(mydata).sort_values(by='depth')
+                    """
+                    print('##########')
+                    print(i)
+                    print(type(mytmpdata))
+                    """
                     if mytmpdata[perma].isnull().all():
                         quality_check.append(False)
                     else:
                         quality_check.append(True)
-                        mydepths = mytmpdata.depth
                     mytmpdata.fillna(value=myfillvalue, inplace = True)
+                    mytmpdata = mytmpdata.drop(mytmpdata[mytmpdata['depth'] == -999.0].index)
+                    #print(mytmpdata)
+                    # Make sure depth is consistent across all profiles opf the month
+                    mydepths = [ele for ele in mytmpdata['depth'] if ele not in mydepths]
                     """
                     print('>>> ', i, ntime)
                     print(mytmpdata)
                     input('Press key to continue')
                     """
-                    myprofiles.append(mytmpdata.soil_temperature)
+                    #myprofiles.append(mytmpdata.soil_temperature)
+                    myprofiles.append(mytmpdata)
                     mytimes.append(i)
                     ntime += 1
+                # Consoilidate depth of profiles for month
+                maxdepth=0
+                depthlevs = []
+                for i in myprofiles:
+                    mydepth = len(i.depth)
+                    if mydepth > maxdepth:
+                        maxdepth = mydepth
+                        depthlevs = i.depth
+                        depthlevs = [ele for ele in i.depth if ele not in depthlevs]
+                # Now make sure all levels are handled by adding missing
+                # TODO fix
+                i = 0
+                myarray = []
+                for item in myprofiles:
+                    for z in depthlevs:
+                        zint = z.astype('int32')
+                        tmparr = item.depth.astype('int32')
+                        if zint not in tmparr.values:
+                            newrec = {'depth': z, 'soil_temperature': -999.}
+                            item.loc[len(item)] = newrec
+                            myprofiles[i] = item
+                    myarray.append(myprofiles[i].soil_temperature)
+                    i += 1
+                # TODO check if more checks on missing levels are necessary
                 if True in quality_check:   
-                    da_profile = xr.DataArray(myprofiles, 
+                    da_profile = xr.DataArray(myarray, 
                             dims=['time','depth'],
                             coords={
                                 'time':mytimes,
-                                'depth':mydepths})
+                                'depth':depthlevs})
                 
                 df.drop(df.columns[depth_num+soil_num],axis=1,inplace=True)
                 if perma in vars_to_down:
@@ -854,6 +888,10 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
                 ds_station[perma].attrs['coordinates'] = t_name
                 ds_station[perma].attrs['performance_category'] = get_performance_category(dir_elements_resol[perma][1])
                 var_dims = [item for v in ds_station.data_vars for item in ds_station[v].dims]
+                """
+                print('###')
+                print(ds_station)
+                """
                 for dd in list(ds_station.dims):
                     if not dd in var_dims:
                         ds_station = ds_station.drop_dims(dd)
