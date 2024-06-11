@@ -778,48 +778,48 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
                         quality_check.append(True)
                     mytmpdata.fillna(value=myfillvalue, inplace = True)
                     mytmpdata = mytmpdata.drop(mytmpdata[mytmpdata['depth'] == -999.0].index)
-                    #print(mytmpdata)
                     # Make sure depth is consistent across all profiles opf the month
                     mydepths = [ele for ele in mytmpdata['depth'] if ele not in mydepths]
-                    """
-                    print('>>> ', i, ntime)
-                    print(mytmpdata)
-                    input('Press key to continue')
-                    """
-                    #myprofiles.append(mytmpdata.soil_temperature)
                     myprofiles.append(mytmpdata)
                     mytimes.append(i)
                     ntime += 1
-                # Consoilidate depth of profiles for month
-                maxdepth=0
+                # Consolidate depth of profiles for month
+                maxdepths = 0
                 depthlevs = []
-                for i in myprofiles:
-                    mydepth = len(i.depth)
-                    if mydepth > maxdepth:
-                        maxdepth = mydepth
-                        depthlevs = i.depth
-                        depthlevs = [ele for ele in i.depth if ele not in depthlevs]
+                for item in myprofiles:
+                    tmparr = item.depth.astype('int32').to_list()
+                    for ele in tmparr: 
+                        if ele not in depthlevs:
+                            depthlevs.append(ele)
+                depthlevs.sort()
+                depthlevs = [float(i) for i in depthlevs]
                 # Now make sure all levels are handled by adding missing
                 # TODO fix
                 i = 0
                 myarray = []
                 for item in myprofiles:
                     for z in depthlevs:
-                        zint = z.astype('int32')
+                        zint = float(z)
                         tmparr = item.depth.astype('int32')
                         if zint not in tmparr.values:
                             newrec = {'depth': z, 'soil_temperature': -999.}
                             item.loc[len(item)] = newrec
                             myprofiles[i] = item
+                    myprofiles[i] = myprofiles[i].sort_values(by='depth', ascending=True)
                     myarray.append(myprofiles[i].soil_temperature)
                     i += 1
-                # TODO check if more checks on missing levels are necessary
+                myarray2d = []
+                myarray2d = np.array([series.to_numpy() for series in myarray])
                 if True in quality_check:   
-                    da_profile = xr.DataArray(myarray, 
-                            dims=['time','depth'],
-                            coords={
-                                'time':mytimes,
-                                'depth':depthlevs})
+                    try:
+                        da_profile = xr.DataArray(myarray2d, 
+                                dims=['time','depth'],
+                                coords={
+                                    'time':mytimes,
+                                    'depth':depthlevs})
+                    except Exception as e:
+                        mylog.error('Something failed creating the DataArray: %s', e)
+                        raise(e)
                 
                 df.drop(df.columns[depth_num+soil_num],axis=1,inplace=True)
                 if perma in vars_to_down:
