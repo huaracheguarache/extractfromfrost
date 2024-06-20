@@ -131,17 +131,12 @@ def parse_arguments():
     if args.startday is None:
         pass
     else:
-        try:
-            datetime.strptime(args.startday,'%Y-%m-%d')
-        except ValueError:
-            raise ValueError
+        datetime.strptime(args.startday,'%Y-%m-%d')
+
     if args.endday is None:
         pass
     else:
-        try:
-            datetime.strptime(args.endday,'%Y-%m-%d')
-        except ValueError:
-            raise ValueError
+        datetime.strptime(args.endday,'%Y-%m-%d')
 
     if args.cfgfile is False:
         parser.print_help()
@@ -163,10 +158,7 @@ def initialise_logger(outputfile = './log'):
     # Check that logfile exists
     logdir = os.path.dirname(outputfile)
     if not os.path.exists(logdir):
-        try:
-            os.makedirs(logdir)
-        except:
-            raise IOError
+        os.makedirs(logdir)
     # Set up logging
     mylog = logging.getLogger()
     mylog.setLevel(logging.INFO)
@@ -653,8 +645,10 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
 ##                dates = dates.drop(dates[-1])
 ##                t_name = ''.join(['time_', t])
 ##                time_dim[t_name] = ([t_name], dates)
-               
+
             # Set up the time dimension ++
+            # TODO: fix deprecation warning: FutureWarning: 'H' is deprecated and will be removed in a future
+            #  version, please use 'h' instead
             dates = pd.date_range(p[0], p[1], freq=freq_dict[frostcfg['frequency']])
             dates = dates.drop(dates[-1]) # Means that last time step will be dropped
             t_name = 'time'
@@ -725,6 +719,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
             mynewcolnames = {}
             for it in mycolnames:
                 itnew = re.sub('pt1h',lambda ele: ele.group(0).upper(),it)
+                # TODO: fix syntaxwarning
                 itnew = re.sub('\(-\)','',itnew)
                 mynewcolnames.update({it:itnew})
 
@@ -874,6 +869,8 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
             if est=='permafrost' and 'da_profile' in locals():
                 
                 # To include only the soil temperature
+                # TODO: fix deprecation warning: DeprecationWarning: dropping
+                #  variables using `drop` is deprecated; use drop_vars.
                 ds_station = ds_station.drop([v for v in ds_station.data_vars])
                 
                 ds_station = ds_station.assign_coords(depth=da_profile.depth.values,time=da_profile.time.values)
@@ -910,6 +907,7 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
             mycolnames = list(ds_station.keys())
             mynewcolnames = {}
             for it in mycolnames:
+                # TODO: fix syntaxwarning
                 itnew = re.sub('PT1H|[\ ()-]','',it)
                 itnew = re.sub('(mean|sum)','\g<1>_',itnew)
                 mynewcolnames.update({it:itnew})
@@ -998,46 +996,35 @@ def extractdata(frostcfg, pars, log, stmd, output, simple=True):
                     pass
                 else:
                     os.mkdir(out_folder)
-                try:
-                    if all_ds_station.data_vars: 
-                        #To pass time to int32, otherwise the netcdf will be written with time in int64
-                        ds_dictio = all_ds_station.to_dict()
-                        alltimes = [x for x in ds_dictio['coords'] if 'time' in x]
-                        for t_c in alltimes:
-                            bad_time = ds_dictio['coords'][t_c]['data']
-                            ds_dictio['coords'][t_c]['data'] = np.array([ti.replace(tzinfo=timezone.utc).timestamp() for ti in bad_time]).astype('i4')
-                        
-                        all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
-                        # Add global attributes
-                        all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, frostcfg['stations'][s], {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
-                        # Set missing values
-                        #print(all_ds_station_period)
-                        """
-                        print(all_ds_station_period['time_PT1H'])
-                        sys.exit()
-                        """
-                        all_ds_station = all_ds_station.fillna(myfillvalue)
-                        # Dump data
-                        all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_name=alltimes[0]))
-                        del all_ds_station
-                        del all_ds_station_period
-                    else:
-                        continue
-                #except TypeError:
-                except Exception as e:
-                    log.error("Something went wrong dumping data to file: %s", e)
+                if all_ds_station.data_vars:
+                    #To pass time to int32, otherwise the netcdf will be written with time in int64
+                    ds_dictio = all_ds_station.to_dict()
+                    alltimes = [x for x in ds_dictio['coords'] if 'time' in x]
+                    for t_c in alltimes:
+                        bad_time = ds_dictio['coords'][t_c]['data']
+                        ds_dictio['coords'][t_c]['data'] = np.array([ti.replace(tzinfo=timezone.utc).timestamp() for ti in bad_time]).astype('i4')
+
+                    all_ds_station_period = xr.Dataset.from_dict(ds_dictio)
+                    # Add global attributes
+                    all_ds_station_period = add_global_attrs(est, all_ds_station_period, stmd, metadata, frostcfg['stations'][s], {'datasetstart': datasetstart,'datasetend': datasetend}, voc_list, bbox)
+                    # Set missing values
+                    #print(all_ds_station_period)
+                    """
+                    print(all_ds_station_period['time_PT1H'])
                     sys.exit()
+                    """
+                    all_ds_station = all_ds_station.fillna(myfillvalue)
+                    # Dump data
+                    all_ds_station_period.to_netcdf(outputfile, encoding=set_encoding(all_ds_station_period, time_name=alltimes[0]))
+                    del all_ds_station
+                    del all_ds_station_period
+                else:
                     continue
 
 
-
 if __name__ == '__main__':
-    
     # Parse command line arguments
-    try:
-        args = parse_arguments()
-    except:
-        raise SystemExit('Command line arguments didn\'t parse correctly.')
+    args = parse_arguments()
 
     # Parse configuration file
     cfgstr = parse_cfg(args.cfgfile)
@@ -1049,8 +1036,5 @@ if __name__ == '__main__':
 
     # Query data and create netcdf
     mylog.info('Process stations requested in configuration file.')
-    try:
-        extractdata(cfgstr['frostcfg'], args, mylog, cfgstr['attributes'], output_dir)
-    except Exception as e:
-        mylog.error('Something failed %s', e)
+    extractdata(cfgstr['frostcfg'], args, mylog, cfgstr['attributes'], output_dir)
 
