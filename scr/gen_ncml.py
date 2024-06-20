@@ -52,10 +52,7 @@ def initialise_logger(outputfile = './log'):
     # Check that logfile exists
     logdir = os.path.dirname(outputfile)
     if not os.path.exists(logdir):
-        try:
-            os.makedirs(logdir)
-        except:
-            raise IOError
+        os.makedirs(logdir)
     # Set up logging
     mylog = logging.getLogger()
     mylog.setLevel(logging.INFO)
@@ -142,13 +139,11 @@ def create_ncml(myncmlfile, aggdir):
     et = ET.ElementTree(root)
     et.write(myncmlfile, xml_declaration=True, encoding='UTF-8', pretty_print=True)
 
+
 if __name__ == '__main__':
     
     # Parse command line arguments
-    try:
-        args = parse_arguments()
-    except:
-        raise SystemExit('Command line arguments didn\'t parse correctly.')
+    args = parse_arguments()
 
     # Parse configuration file
     #cfgstr = parse_cfg(args.cfgfile)
@@ -158,7 +153,4 @@ if __name__ == '__main__':
     mylog = initialise_logger(args.logdir)
     mylog.info('Configuration of logging is finished.')
 
-    try:
-        traverse_structure(args.destination)
-    except Exception as e:
-        mylog.error('Something failed %s', e)
+    traverse_structure(args.destination)
