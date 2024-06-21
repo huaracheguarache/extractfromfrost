@@ -32,6 +32,7 @@ import lxml.etree as ET
 from netCDF4 import Dataset
 import pytz
 from datetime import datetime
+import numpy as np
 
 
 def parse_arguments():
@@ -46,10 +47,19 @@ def parse_arguments():
                         dest="logdir",
                         help="Destination where to put logfiles",
                         required=True)
-    parser.add_argument("-o",
-                        "--overwrite",
-                        action='store_true',
-                        help="Overwrite if NCML is existing")
+    parser.add_argument("-e",
+                        "--end_time",
+                        action="store_true",
+                        help="Set ACDD end time to empty")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-o",
+                       "--overwrite",
+                       action='store_true',
+                       help="Overwrite if NCML is existing")
+    group.add_argument("-u",
+                       '--update',
+                       action="store_true",
+                       help="Update existing NCML with new timestamps")
     args = parser.parse_args()
 
     """
@@ -99,7 +109,10 @@ def traverse_structure(myfolder):
         mylog.info('Processing folder: %s', mydir)
         myncmlfile = '/'.join([mydir, item])+'-aggregated.ncml'
         try:
-            create_ncml(myncmlfile, mydir)
+            if not args.update:
+                create_ncml(myncmlfile, mydir)
+            else:
+                update_ncml(myncmlfile, mydir)
         except Exception as e:
             mylog.error('Something failed.')
             raise
@@ -126,7 +139,7 @@ def create_ncml(myncmlfile, aggdir):
     """
     # Set up specific files to include, assuming data stored in years
     # Set a time stamp into the future...
-    mystarttime = 4000000000 
+    mystarttime = 4000000000
     for item in sorted(os.listdir(aggdir)):
         curdir = '/'.join([aggdir, item])
         # Check content of yearly folder
@@ -150,7 +163,80 @@ def create_ncml(myncmlfile, aggdir):
     mymeta.set('value', datetime.fromtimestamp(mystarttime).astimezone(pytz.timezone('UTC'))
                .strftime("%Y-%m-%dT%H:%M:%S%z"))
 
+    if args.end_time:
+        end_time_element = ET.SubElement(root, ET.QName('attribute'))
+        end_time_element.set('name', 'time_coverage_end')
+        end_time_element.set('value', '')
+
     # Dump NCML file
+    et = ET.ElementTree(root)
+    et.write(myncmlfile, xml_declaration=True, encoding='UTF-8', pretty_print=True)
+
+
+def update_ncml(myncmlfile, aggdir):
+    parser = ET.XMLParser(remove_blank_text=True)
+    tree = ET.parse(myncmlfile, parser)
+    root = tree.getroot()
+    aggregation = root.find('{http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2}aggregation')
+    children = aggregation.getchildren()
+
+    # Remove the last element. This is done to ensure that the last month in the existing file is updated with new
+    # data if it is available.
+    aggregation.remove(children[-1])
+
+    locations_update = []
+    time_strings_update = []
+
+    mystarttime = 4000000000
+    for item in sorted(os.listdir(aggdir)):
+        curdir = '/'.join([aggdir, item])
+        # Check content of yearly folder
+        if os.path.isdir(curdir):
+            # Process files
+            for item2 in sorted(os.listdir(curdir)):
+                myfile = '/'.join([curdir, item2])
+                # Open NetCDF and check content
+                if myfile.endswith('.nc'):
+                    myncds = Dataset(myfile)
+                    tmp = myncds.variables['time'][:]
+                    if min(tmp) < mystarttime:
+                        mystarttime = min(tmp)
+                    tmpstring = ' '.join(str(num) for num in tmp)
+                    locations_update.append(myfile)
+                    time_strings_update.append(tmpstring)
+                    myncds.close()
+
+    locations_update = np.array(locations_update)
+    time_strings_update = np.array(time_strings_update)
+
+    # Insert new data into the xml structure.
+    last_location = children[-2].attrib['location']
+    valid_indexes = locations_update > last_location
+    new_locations = locations_update[valid_indexes]
+    new_time_strings = time_strings_update[valid_indexes]
+
+    for location, time_string in zip(new_locations, new_time_strings):
+        netcdf = ET.SubElement(aggregation, ET.QName('netcdf'))
+        netcdf.set('location', location)
+        netcdf.set('coordValue', time_string)
+
+    if args.end_time:
+        for attribute_element in root.findall('{http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2}attribute'):
+            try:
+                attribute_element.attrib['time_coverage_end']
+            except KeyError:
+                pass
+            else:
+                # Remove the time_coverage_end attribute if it exists.
+                root.remove(attribute_element)
+                break
+
+        # Add an empty time_coverage_end attribute.
+        end_time_element = ET.SubElement(root, ET.QName('attribute'))
+        end_time_element.set('name', 'time_coverage_end')
+        end_time_element.set('value', '')
+
+    # Dump NCML file.
     et = ET.ElementTree(root)
     et.write(myncmlfile, xml_declaration=True, encoding='UTF-8', pretty_print=True)
 
