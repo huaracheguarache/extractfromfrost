@@ -1,18 +1,4 @@
 # Extract data from frost
 
-**This is still work in progress**
-
 ## Purpose
-FIXME
-
-## Contents
-- extractpermafrost
-: Extracts permafrost data from ODA using frost.
-- extractradflux
-: Extracts surface irradiance measurements from ODA using frost
-- extractmet
-: Extracts common meteorlogical elements from ODA using frost. Supports
-fixed stations only
-- extractmetship
-: Extracts common meteorlogical elements from ODA using frost. Supports
-moving stations only
+This software connects to the Frost API offered by MET and extracts information, converts to CF-NetCDF and dumps this in monthly files which can be aggregated.
